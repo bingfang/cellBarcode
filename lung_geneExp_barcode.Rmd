@@ -1,0 +1,243 @@
+---
+title: "Data plan for geneExp"
+author: "Bingfang"
+date: "12/12/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Objective
+
+Identify a list of true expressed genes of a specific cell type, which will use to for functional analysis of biological process/pathway of the cell type.
+
+## 2. Set environment
+
+
+```{r,, echo=FALSE,warning=FALSE,message=FALSE}
+#install.packages("sads")  # not working on local MAC
+library(sads)
+#install.packages("BiocParallel")
+library(BiocParallel)
+library(Seurat)
+library(org.Hs.eg.db)
+
+# Get gene-specific distributions
+load('params_EM_81020.rda')
+pi.all.g <- params[[1]]
+g.on.all.g <- params[[2]]
+g.off.all.g <- params[[3]]
+a.all.g <- params[[4]]
+sigma.all.g <- params[[5]]
+mu.g<-c(-12.73153,-8.301349)
+```
+
+## 2. Data Collection
+Input Data:
+HLCA data from cellXgene
+cellRef data from cellXgene
+
+```{r} 
+
+hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
+
+#cellRef = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/
+
+
+typeof(hlca)
+names(hlca)
+head(hlca$RNA)
+
+
+typeof(hlca$RNA)
+dim(hlca$RNA)
+head(hlca$RNA@counts)
+
+summary(hlca@meta.data$ann_finest_level)
+
+```
+
+
+## geneXcell matrix, not working
+```{r}
+# hlca  is seurat object from readRDS
+sparse_matrix <- hlca@assays$RNA@counts
+hlca_matrix <- as.matrix(sparse_matrix)
+
+hlca_filtered <- subset(hlca,subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+
+
+# convert to 10x format 
+str(hlca@assays$RNA@counts)
+hlca_matrix <-hlca@assays$RNA@counts
+# Ensure the hlca_matrix is a sparse matrix
+if (!inherits(hlca_matrix, "dgCMatrix")) {
+  stop("hlca_matrix is not in sparse matrix format!")
+}
+ 
+# Create the output directory
+dir.create("hg19", showWarnings = FALSE)
+ 
+# Write the barcodes.tsv file
+write.table(colnames(hlca_matrix), file = "hg19/barcodes.tsv", sep = "\t",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+ 
+# Write the genes.tsv file (if row names are available)
+write.table(rownames(hlca_matrix), file = "hg19/genes.tsv", sep = "\t",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+ 
+# Write the matrix.mtx file
+writeMM(hlca_matrix, file = "hg19/matrix.mtx")
+```
+
+
+## 3. Data Preprocessing
+
+
+
+```
+
+```{r,echo=TRUE,warning=FALSE,message=FALSE}
+set.seed(6619)
+
+### Preparation for symbol->ENSEMBL conversion
+Hs_symbol <- org.Hs.egSYMBOL
+mapped_Hs_genes.symbol <- mappedkeys(Hs_symbol)
+Hs_symbol.df <- as.data.frame(Hs_symbol[mapped_Hs_genes.symbol])
+Hs_ensembl <- org.Hs.egENSEMBL
+mapped_Hs_genes.ensembl <- mappedkeys(Hs_ensembl)
+Hs_ensembl.df <- as.data.frame(Hs_ensembl[mapped_Hs_genes.ensembl])
+Hs_mapping <- merge(Hs_symbol.df,Hs_ensembl.df)
+
+## CD4: https://support.10xgenomics.com/single-cell-gene-expression/datasets/1.1.0/cd4_t_helper? 
+cd4_facs.data <- Read10X(data.dir = "./data/cd4_singlecell/hg19/") 
+cd4_facs.data <- as.matrix(cd4_facs.data)
+rownames(cd4_facs.data) <- Hs_mapping$ensembl_id[match(rownames(cd4_facs.data),
+                                                       Hs_mapping$symbol)]
+cd4_facs.data <- cd4_facs.data[!is.na(rownames(cd4_facs.data)),]
+cd4_facs.data <- na.omit(cd4_facs.data)
+cd4.test <- cd4_facs.data[,1:100] # CD4 withheld cells
+cd4_facs.data <- cd4_facs.data[,101:5101] # CD4 training cells
+
+## CD8: https://support.10xgenomics.com/single-cell-gene-expression/datasets/1.1.0/cytotoxic_t
+cd8_facs.data <- Read10X(data.dir = './data/filtered_matrices_cd8/hg19/')
+cd8_facs.data <- as.matrix(cd8_facs.data) 
+rownames(cd8_facs.data) <- Hs_mapping$ensembl_id[match(rownames(cd8_facs.data),
+                                                       Hs_mapping$symbol)]
+cd8_facs.data <- cd8_facs.data[!is.na(rownames(cd8_facs.data)),]
+cd8.test <- cd8_facs.data[,1:100] # CD8 withheld cells
+cd8_facs.data <- cd8_facs.data[,101:5101] # CD8 training cells
+
+## CD14: https://support.10xgenomics.com/single-cell-gene-expression/datasets/1.1.0/cd14_monocytes
+cd14_facs.data <- Read10X(data.dir = './data/filtered_matrices_cd14/hg19/')
+cd14_facs.data <- as.matrix(cd14_facs.data)
+rownames(cd14_facs.data) <- Hs_mapping$ensembl_id[match(rownames(cd14_facs.data),
+                                                        Hs_mapping$symbol)]
+cd14_facs.data <- cd14_facs.data[!is.na(rownames(cd14_facs.data)),]
+cd14.test <- cd14_facs.data[,1:100] # CD14 withheld cells
+cd14_facs.data <- cd14_facs.data[,101:ncol(cd14_facs.data)] # CD14 training cells
+
+## NK: https://support.10xgenomics.com/single-cell-gene-expression/datasets/1.1.0/cd56_nk
+nk_facs.data <- Read10X(data.dir = './data/filtered_matrices_nk/hg19/')
+nk_facs.data <- as.matrix(nk_facs.data)
+rownames(nk_facs.data) <- Hs_mapping$ensembl_id[match(rownames(nk_facs.data),
+                                                      Hs_mapping$symbol)]
+nk_facs.data <- nk_facs.data[!is.na(rownames(nk_facs.data)),]
+nk.test <- nk_facs.data[,1:100] # NK withheld cells
+nk_facs.data <- nk_facs.data[,101:5101] # NK training cells
+```
+
+
+```{r,echo=TRUE,warning=FALSE,message=FALSE}
+## Input a single matrix with a vector of labels 
+common_pbmcs_genes <- Reduce(intersect,list(rownames(cd4_facs.data),
+                                            rownames(cd14_facs.data),
+                                                rownames(cd8_facs.data),
+                                            rownames(nk_facs.data)))
+pbmcs_reference <- as.matrix(cbind(cd4_facs.data[common_pbmcs_genes,],
+                                   cd14_facs.data[common_pbmcs_genes,],
+                                   cd8_facs.data[common_pbmcs_genes,],
+                                   nk_facs.data[common_pbmcs_genes,]))
+pbmcs_reference_labels <- c(rep('CD4',dim(cd4_facs.data)[2]),rep('CD14',dim(cd14_facs.data)[2]),
+                            rep('CD8',dim(cd8_facs.data)[2]),rep('NK',dim(nk_facs.data)[2]))
+
+```
+
+
+
+Remove low-quality cells 
+
+
+## 4. calculate rate and probability
+
+```{r, message=FALSE}
+# Train reference data
+trainReference <- function(ref,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigma.all=sigma.all.g,
+                           g.on.all=g.on.all.g,g.off.all=g.off.all.g,discrim_only=TRUE) {
+  # Subset to genes present in both reference data and knowledge base
+  common <- intersect(names(ref),rownames(pi.all))
+  if (discrim_only) {
+    common <- intersect(common,discrim.g)
+  }
+  N <- sum(ref)
+  ref <- ref[common]
+  pi.all2 <- pi.all[common,]
+  a.all2 <- a[common]
+  sigma.all2 <- sigma.all[common,]
+  g.on.all2 <- g.on.all[common]
+  g.off.all2 <- g.off.all[common]
+  
+  # Compute mixing probability for each component
+  prob.exp <- pi.all2[,1]*dnbinom(ref,1,1/((N/(a.all2))+1))
+  prob.ln1 <- sapply(common,function(j) 
+    pi.all2[j,2]*sads::dpoilog(ref[j],mu[1]+g.off.all2[j]+log(N),sigma.all2[j,1]))
+  prob.ln2 <- sapply(common,function(j) 
+    (1-pi.all2[j,1]-pi.all2[j,2])*sads::dpoilog(ref[j],mu[2]+g.on.all2[j]+log(N),sigma.all2[j,2])) 
+  return(data.frame(rate=ref/N,exp=prob.exp/(prob.exp+prob.ln1+prob.ln2),ln1=prob.ln1/(prob.exp+prob.ln1+prob.ln2),
+                    ln2=prob.ln2/(prob.exp+prob.ln1+prob.ln2)))
+}
+
+# Train all reference
+trainAllReference <- function(data,labels,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigma.all=sigma.all.g,
+                              g.on.all=g.on.all.g,g.off.all=g.off.all.g,discrim_only=TRUE) {
+  cell.types <- unique(labels)
+  dataSums <- lapply(cell.types,function(c) rowSums(data[,labels==c]))
+  d.list <- bplapply(dataSums,trainReference,pi.all=pi.all,mu=mu,a=a,sigma.all=sigma.all,
+                     g.on.all=g.on.all,g.off.all=g.off.all,discrim_only=discrim_only)
+  names(d.list) <- cell.types
+  return(d.list)
+}
+
+
+pbmcs.d <- trainAllReference(pbmcs_reference,pbmcs_reference_labels,discrim_only=FALSE)
+head(pbmcs.d[1])
+```
+
+## 5. getBarcode
+
+```{r}
+function(d.list) {
+  barcode <- sapply(d.list,function(x) 1-x[,2]-x[,3])      # ### Barcode is   ln2=prob.ln2/(prob.exp+prob.ln1+prob.ln2) if greater than 0
+  barcode[barcode<0] <- 0
+  colnames(barcode) <- names(d.list)
+  rownames(barcode) <- rownames(d.list[[1]])
+  return(barcode)
+}
+
+barcodes <- getBarcode(pbmcs.d)
+head(barcodes)
+
+```
+
+
+## 6. Visualization
+
+
+## 7. Validation
+
+## 8. Interpretation
+
+## 9. Reporting
+Summarize findings in a detailed report or manuscript with figures and statistical analyses.
