@@ -17,12 +17,14 @@ Identify a list of true expressed genes of a specific cell type, which will use 
 
 
 ```{r,, echo=TRUE,warning=FALSE,message=FALSE, results=FALSE}
-#install.packages("sads")  # not working on local MAC
+#install.packages("sads")     # not working on local MAC
 library(sads)
 #install.packages("BiocParallel")
 library(BiocParallel)
-library(Seurat)
+library(Seurat)                #cannot install on local MAC
 library(org.Hs.eg.db)
+#install.packages("Matrix")
+library(Matrix)
 
 # Get gene-specific distributions
 load('params_EM_81020.rda')
@@ -35,15 +37,22 @@ mu.g<-c(-12.73153,-8.301349)
 ```
 
 ## 2. Data Collection
+
 Input Data:
 
 PBMC demo data 
-HLCA data from cellXgene
-cellRef data from cellXgene
+
 
 ## 3. Data Preprocessing
 
-PBMC 
+PBMC data are raw counts after removing low quality cells. Default filtering was used to removed low quality cells.
+
+```{r}
+# Remove low-quality cells 
+#pbmc <- subset(pbmc,subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+```
+
+pbmc demo data
 
 ```{r,echo=TRUE,warning=FALSE,message=FALSE}
 set.seed(6619)
@@ -111,30 +120,8 @@ pbmcs_reference_labels <- c(rep('CD4',dim(cd4_facs.data)[2]),rep('CD14',dim(cd14
 
 ```
 
-```{}
-hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
 
-
-
-head(hlca)
-typeof(hlca)
-names(hlca)
-
-typeof(hlca$RNA)
-dim(hlca$RNA)
-head(hlca$RNA)
-
-typeof(hlca$SCT)
-dim(hlca$SCT)
-head(hlca$SCT)
-
-seuObj = CreateSeuratObject(counts=hlca$RNA@data,assay="RNA",meta.data=hlca$RNA@varMetadata)
-```
-
-Remove low-quality cells 
-
-
-## 4. calculate rate and probability
+## 4. Calculate rate and probability
 
 ```{r, message=FALSE}
 # Train reference data
@@ -191,19 +178,58 @@ getBarcode <- function(d.list) {
 }
 
 barcodes <- getBarcode(pbmcs.d)
-head(barcodes)
 
 ```
 
+## 6. Results
 
-## 6. Visualization
+An example of a barcodes data frame
 
-Venn diagram cellRef vs. HLCA
+```{r}
+class(barcodes)
+
+barcodes<- as.data.frame(barcodes)
+
+head(barcodes)
+```
+
+The length of expressed gene list for each cell type, if the probability of gene expression is great than 50% or  75%
+
+```{r}
+for (cut_off in c(0.5,0.75,0.95)) {
+  cat("The following is the length of the expressed gene list for cell type CD4, CD14, CD8 and NK, if the probability of gene expression is great than ", cut_off , "\n")
+  
+  CD4_geneList <-rownames(barcodes)[barcodes$`CD4` > cut_off]
+  cat("CD4:", length(CD4_geneList), "\n")
+  write.table(CD4_geneList, file = paste0("CD4", cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  CD14_geneList <-rownames(barcodes)[barcodes$`CD14` > cut_off]
+  cat("CD14:", length(CD14_geneList), "\n")
+  write.table(CD14_geneList, file = paste0("CD14", cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  CD8_geneList <-rownames(barcodes)[barcodes$`CD8` > cut_off]
+  cat("CD8:", length(CD8_geneList), "\n")
+  write.table(CD8_geneList, file = paste0("CD8", cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  NK_geneList <-rownames(barcodes)[barcodes$`NK` > cut_off]
+  cat("NK:", length(NK_geneList), "\n")
+  write.table(NK_geneList, file = paste0("NK", cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+}
+```
 
 
-## 7. Validation
+## 7. Visualization
 
-## 8. Interpretation
+Venn diagram
+
+
+## 8. Validation
+
+compare results of the same cell types from different datasets e.g. cellRef vs. Hlca
+
+compare results from different cell types. e.g. CD4 vs. CD8
+
+Subsampling, Bootstrap Aggregation,Perturbation ( add 10% cells from other cell type)
+
+compare with the known go term of the cell type.
 
 ## 9. Reporting
 Summarize findings in a detailed report or manuscript with figures and statistical analyses.

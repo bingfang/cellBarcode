@@ -16,13 +16,15 @@ Identify a list of true expressed genes of a specific cell type, which will use 
 ## 2. Set environment
 
 
-```{r,, echo=FALSE,warning=FALSE,message=FALSE}
+```{r, echo=TRUE,warning=FALSE,message=FALSE}
 #install.packages("sads")  # not working on local MAC
 library(sads)
 #install.packages("BiocParallel")
 library(BiocParallel)
 library(Seurat)
 library(org.Hs.eg.db)
+#install.packages("Matrix")
+library(Matrix)
 
 # Get gene-specific distributions
 load('params_EM_81020.rda')
@@ -35,6 +37,7 @@ mu.g<-c(-12.73153,-8.301349)
 ```
 
 ## 2. Data Collection
+
 Input Data:
 HLCA data from cellXgene
 cellRef data from cellXgene

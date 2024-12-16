@@ -365,12 +365,14 @@ of the cell type.</p>
 </div>
 <div id="set-environment" class="section level2">
 <h2>2. Set environment</h2>
-<pre class="r"><code>#install.packages(&quot;sads&quot;)  # not working on local MAC
+<pre class="r"><code>#install.packages(&quot;sads&quot;)     # not working on local MAC
 library(sads)
 #install.packages(&quot;BiocParallel&quot;)
 library(BiocParallel)
-library(Seurat)
+library(Seurat)                #cannot install on local MAC
 library(org.Hs.eg.db)
+#install.packages(&quot;Matrix&quot;)
+library(Matrix)
 
 # Get gene-specific distributions
 load(&#39;params_EM_81020.rda&#39;)
@@ -384,12 +386,15 @@ mu.g&lt;-c(-12.73153,-8.301349)</code></pre>
 <div id="data-collection" class="section level2">
 <h2>2. Data Collection</h2>
 <p>Input Data:</p>
-<p>PBMC demo data HLCA data from cellXgene cellRef data from
-cellXgene</p>
+<p>PBMC demo data</p>
 </div>
 <div id="data-preprocessing" class="section level2">
 <h2>3. Data Preprocessing</h2>
-<p>PBMC</p>
+<p>PBMC data are raw counts after removing low quality cells. Default
+filtering was used to removed low quality cells.</p>
+<pre class="r"><code># Remove low-quality cells 
+#pbmc &lt;- subset(pbmc,subset = nFeature_RNA &gt; 200 &amp; nFeature_RNA &lt; 2500 &amp; percent.mt &lt; 5)</code></pre>
+<p>pbmc demo data</p>
 <pre class="r"><code>set.seed(6619)
 
 ### Preparation for symbol-&gt;ENSEMBL conversion
@@ -448,10 +453,9 @@ pbmcs_reference &lt;- as.matrix(cbind(cd4_facs.data[common_pbmcs_genes,],
                                    nk_facs.data[common_pbmcs_genes,]))
 pbmcs_reference_labels &lt;- c(rep(&#39;CD4&#39;,dim(cd4_facs.data)[2]),rep(&#39;CD14&#39;,dim(cd14_facs.data)[2]),
                             rep(&#39;CD8&#39;,dim(cd8_facs.data)[2]),rep(&#39;NK&#39;,dim(nk_facs.data)[2]))</code></pre>
-<p>Remove low-quality cells</p>
 </div>
 <div id="calculate-rate-and-probability" class="section level2">
-<h2>4. calculate rate and probability</h2>
+<h2>4. Calculate rate and probability</h2>
 <pre class="r"><code># Train reference data
 trainReference &lt;- function(ref,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigma.all=sigma.all.g,
                            g.on.all=g.on.all.g,g.off.all=g.off.all.g,discrim_only=TRUE) {
@@ -510,7 +514,15 @@ head(pbmcs.d[[1]])</code></pre>
   return(barcode)
 }
 
-barcodes &lt;- getBarcode(pbmcs.d)
+barcodes &lt;- getBarcode(pbmcs.d)</code></pre>
+</div>
+<div id="results" class="section level2">
+<h2>6. Results</h2>
+<p>An example of a barcodes data frame</p>
+<pre class="r"><code>class(barcodes)</code></pre>
+<pre><code>## [1] &quot;matrix&quot; &quot;array&quot;</code></pre>
+<pre class="r"><code>barcodes&lt;- as.data.frame(barcodes)
+
 head(barcodes)</code></pre>
 <pre><code>##                          CD4         CD14          CD8           NK
 ## ENSG00000237613 2.064321e-16 2.220446e-16 1.925543e-16 1.647987e-16
@@ -519,19 +531,53 @@ head(barcodes)</code></pre>
 ## ENSG00000177757 8.556509e-10 7.015680e-10 9.125983e-10 9.090474e-10
 ## ENSG00000230368 2.784804e-13 2.089301e-13 1.534467e-13 6.531997e-13
 ## ENSG00000187634 5.668630e-09 4.952028e-06 1.043756e-10 1.144851e-10</code></pre>
+<p>The length of expressed gene list for each cell type, if the
+probability of gene expression is great than 50% or 75%</p>
+<pre class="r"><code>for (cut_off in c(0.5,0.75,0.95)) {
+  cat(&quot;The following is the length of the expressed gene list for cell type CD4, CD14, CD8 and NK, if the probability of gene expression is great than &quot;, cut_off , &quot;\n&quot;)
+  
+  CD4_geneList &lt;-rownames(barcodes)[barcodes$`CD4` &gt; cut_off]
+  cat(&quot;CD4:&quot;, length(CD4_geneList), &quot;\n&quot;)
+  write.table(CD4_geneList, file = paste0(&quot;CD4&quot;, cut_off, &quot;.tsv&quot;), sep = &quot;\n&quot;, row.names = FALSE, col.names = FALSE, quote = FALSE)
+  CD14_geneList &lt;-rownames(barcodes)[barcodes$`CD14` &gt; cut_off]
+  cat(&quot;CD14:&quot;, length(CD14_geneList), &quot;\n&quot;)
+  CD8_geneList &lt;-rownames(barcodes)[barcodes$`CD8` &gt; cut_off]
+  cat(&quot;CD8:&quot;, length(CD8_geneList), &quot;\n&quot;)
+  NK_geneList &lt;-rownames(barcodes)[barcodes$`NK` &gt; cut_off]
+  cat(&quot;NK:&quot;, length(NK_geneList), &quot;\n&quot;)
+
+}</code></pre>
+<pre><code>## The following is the length of the expressed gene list for cell type CD4, CD14, CD8 and NK, if the probability of gene expression is great than  0.5 
+## CD4: 2808 
+## CD14: 2971 
+## CD8: 2760 
+## NK: 2952 
+## The following is the length of the expressed gene list for cell type CD4, CD14, CD8 and NK, if the probability of gene expression is great than  0.75 
+## CD4: 2060 
+## CD14: 2135 
+## CD8: 2070 
+## NK: 2214 
+## The following is the length of the expressed gene list for cell type CD4, CD14, CD8 and NK, if the probability of gene expression is great than  0.95 
+## CD4: 1240 
+## CD14: 1222 
+## CD8: 1229 
+## NK: 1330</code></pre>
 </div>
 <div id="visualization" class="section level2">
-<h2>6. Visualization</h2>
-<p>Venn diagram cellRef vs. HLCA</p>
+<h2>7. Visualization</h2>
+<p>Venn diagram</p>
 </div>
 <div id="validation" class="section level2">
 <h2>7. Validation</h2>
-</div>
-<div id="interpretation" class="section level2">
-<h2>8. Interpretation</h2>
+<p>compare results of the same cell types from different datasets
+e.g. cellRef vs. Hlca</p>
+<p>compare results from different cell types. e.g. CD4 vs. CD8</p>
+<p>Subsampling, Bootstrap Aggregation,Perturbation ( add 10% cells from
+other cell type)</p>
+<p>compare with the known go term of the cell type.</p>
 </div>
 <div id="reporting" class="section level2">
-<h2>9. Reporting</h2>
+<h2>8. Reporting</h2>
 <p>Summarize findings in a detailed report or manuscript with figures
 and statistical analyses.</p>
 </div>
