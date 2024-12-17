@@ -55,6 +55,7 @@ hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b35180
 
 ```{}
 hlca_filtered <- subset(hlca,subset = nFeaturess_RNA_detected > 200 & nFeaturess_RNA_detected < 2500)
+
 ## need to convert to gene symbol to filter percent.mt < 5
 ##hlca_filtered <- subset(hlca,subset = nFeaturess_RNA_detected > 200 & nFeaturess_RNA_detected < 2500 & percent.mt < 5)
 ```
@@ -95,7 +96,7 @@ hlca_matrix_ionocyte <- as.matrix(sparse_matrix_ionocyte)
 
 sparse_matrix_2types<-hlca_2types@assays$RNA@counts
 hlca_matrix_2types <- as.matrix(sparse_matrix_2types) 
-hlca_matrix_2types_labels <-c(rep('mucus_secreting',dim(hlca_matrix_mucus_secreting)[2]),rep('ionocyte',dim(hlca_matrix_ionocyte)[2]))
+hlca_matrix_2types_labels<-c(rep('mucus_secreting',dim(hlca_matrix_mucus_secreting)[2]),rep('ionocyte',dim(hlca_matrix_ionocyte)[2]))
 
 dim(hlca_matrix_2types)                            
 length(hlca_matrix_2types_labels)
@@ -157,7 +158,7 @@ hlca_2types.d[[1]]
 ## 5. getBarcode
 
 ```{r}
-function(d.list) {
+getBarcode<-function(d.list) {
   barcode <- sapply(d.list,function(x) 1-x[,2]-x[,3])      # ### Barcode is   ln2=prob.ln2/(prob.exp+prob.ln1+prob.ln2) if greater than 0
   barcode[barcode<0] <- 0
   colnames(barcode) <- names(d.list)
@@ -165,7 +166,7 @@ function(d.list) {
   return(barcode)
 }
 
-barcodes <- getBarcode(pbmcs.d)
+barcodes <- getBarcode(hlca_2types.d)
 head(barcodes)
 
 ```
@@ -174,7 +175,16 @@ head(barcodes)
 ## 6. Visualization
 
 
+
 ## 7. Validation
+
+Compare results of the same cell types from different datasets e.g. cellRef vs. Hlca
+
+Compare results from different cell types. e.g. mucus_secreting cell vs. ionocyte.
+
+Subsampling, Bootstrap Aggregation,Perturbation ( add 10% cells from other cell type)
+
+Compare with the known go term of the cell type.
 
 ## 8. Interpretation
 
