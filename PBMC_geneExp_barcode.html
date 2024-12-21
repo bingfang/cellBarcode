@@ -383,13 +383,10 @@ a.all.g &lt;- params[[4]]
 sigma.all.g &lt;- params[[5]]
 mu.g&lt;-c(-12.73153,-8.301349)</code></pre>
 </div>
-<div id="data-collection" class="section level2">
-<h2>2. Data Collection</h2>
+<div id="data-collection-and-preprocessing" class="section level2">
+<h2>3. Data Collection and Preprocessing</h2>
 <p>Input Data:</p>
 <p>PBMC demo data</p>
-</div>
-<div id="data-preprocessing" class="section level2">
-<h2>3. Data Preprocessing</h2>
 <p>PBMC data are raw counts after removing low quality cells. Default
 filtering was used to removed low quality cells.</p>
 <pre class="r"><code># Remove low-quality cells 
@@ -491,10 +488,9 @@ trainAllReference &lt;- function(data,labels,pi.all=pi.all.g,mu=mu.g,a=a.all.g,s
                      g.on.all=g.on.all,g.off.all=g.off.all,discrim_only=discrim_only)
   names(d.list) &lt;- cell.types
   return(d.list)
-}
-
-
-pbmcs.d &lt;- trainAllReference(pbmcs_reference,pbmcs_reference_labels,discrim_only=FALSE)
+}</code></pre>
+<p>View rate and probability for three state/mode</p>
+<pre class="r"><code>pbmcs.d &lt;- trainAllReference(pbmcs_reference,pbmcs_reference_labels,discrim_only=FALSE)
 head(pbmcs.d[[1]])</code></pre>
 <pre><code>##                         rate       exp         ln1          ln2
 ## ENSG00000237613 0.000000e+00 0.9908179 0.009182088 1.840146e-16
@@ -541,10 +537,13 @@ probability of gene expression is great than 50% or 75%</p>
   write.table(CD4_geneList, file = paste0(&quot;CD4&quot;, cut_off, &quot;.tsv&quot;), sep = &quot;\n&quot;, row.names = FALSE, col.names = FALSE, quote = FALSE)
   CD14_geneList &lt;-rownames(barcodes)[barcodes$`CD14` &gt; cut_off]
   cat(&quot;CD14:&quot;, length(CD14_geneList), &quot;\n&quot;)
+  write.table(CD14_geneList, file = paste0(&quot;CD14&quot;, cut_off, &quot;.tsv&quot;), sep = &quot;\n&quot;, row.names = FALSE, col.names = FALSE, quote = FALSE)
   CD8_geneList &lt;-rownames(barcodes)[barcodes$`CD8` &gt; cut_off]
   cat(&quot;CD8:&quot;, length(CD8_geneList), &quot;\n&quot;)
+  write.table(CD8_geneList, file = paste0(&quot;CD8&quot;, cut_off, &quot;.tsv&quot;), sep = &quot;\n&quot;, row.names = FALSE, col.names = FALSE, quote = FALSE)
   NK_geneList &lt;-rownames(barcodes)[barcodes$`NK` &gt; cut_off]
   cat(&quot;NK:&quot;, length(NK_geneList), &quot;\n&quot;)
+  write.table(NK_geneList, file = paste0(&quot;NK&quot;, cut_off, &quot;.tsv&quot;), sep = &quot;\n&quot;, row.names = FALSE, col.names = FALSE, quote = FALSE)
 
 }</code></pre>
 <pre><code>## The following is the length of the expressed gene list for cell type CD4, CD14, CD8 and NK, if the probability of gene expression is great than  0.5 
@@ -568,7 +567,7 @@ probability of gene expression is great than 50% or 75%</p>
 <p>Venn diagram</p>
 </div>
 <div id="validation" class="section level2">
-<h2>7. Validation</h2>
+<h2>8. Validation</h2>
 <p>compare results of the same cell types from different datasets
 e.g. cellRef vs. Hlca</p>
 <p>compare results from different cell types. e.g. CD4 vs. CD8</p>
@@ -577,7 +576,7 @@ other cell type)</p>
 <p>compare with the known go term of the cell type.</p>
 </div>
 <div id="reporting" class="section level2">
-<h2>8. Reporting</h2>
+<h2>9. Reporting</h2>
 <p>Summarize findings in a detailed report or manuscript with figures
 and statistical analyses.</p>
 </div>

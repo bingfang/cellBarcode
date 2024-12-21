@@ -1,7 +1,7 @@
 ---
 title: "Data plan for geneExp"
 author: "Bingfang"
-date: "12/12/2024"
+date: "12/20/2024"
 output: html_document
 ---
 
@@ -51,41 +51,86 @@ HLCA data from cellXgene
 
 cellRef data from cellXgene
 
-```{r} 
+The authors of cellRef match "celltype_level3_fullname" with "putative CL label" and "CL term"
+
+```{r, results='hide'} 
 
 hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
 cellRef = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/443f7fb8-2a27-47c3-98f6-6a603c7a294e_cellRef.rds")
 
+
 summary(hlca@assays$RNA@meta.features$feature_type)
+head(hlca@assays$RNA@meta.features$feature_name)
+table(hlca@assays$RNA@meta.features$feature_is_filtered)
+
+summary(cellRef@assays$RNA@meta.features$feature_type)
+head(cellRef@assays$RNA@meta.features$feature_name)
+cellRef@assays$RNA@meta.features$origSymbol
+table(cellRef@assays$RNA@meta.features$feature_is_filtered)
+table(cellRef@meta.data$cell_type_ontology_term_id)
+table(cellRef@meta.data$putative_CL_label)
+table(cellRef@meta.data$celltype_level3_fullname)
+
+
 ```
+
+IncRNA ensembl ID may not be stable
+e.g. ENSG00000238009 
+Ensembl gene ENSG00000238009 is no longer in the database.It has been mapped to 1 current identifier  ENSG00000241860.
+
 
 ### 2.2 remove low quality cells
 
 ```{}
-hlca_filtered <- subset(hlca,subset = nFeaturess_RNA_detected > 200 & nFeaturess_RNA_detected < 2500)
+## plot
+
+jpeg(file="HLCA_nFeature.jpeg")
+VlnPlot(hlca, features = c("nFeaturess_RNA_detected"))   #,raster=FALSE)
+dev.off()
+
+jpeg(file="cellRef_nFeature.jpeg")
+VlnPlot(cellRef, features = c("nFeature_RNA", "nCount_RNA"), ncol = 2)
+dev.off()
+
+## filter
 
 ## need to convert to gene symbol to filter percent.mt < 5
-##hlca_filtered <- subset(hlca,subset = nFeaturess_RNA_detected > 200 & nFeaturess_RNA_detected < 2500 & percent.mt < 5)
+## pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^MT-")
+
+hlca_filtered <- subset(hlca, subset = nFeaturess_RNA_detected > 200 & nFeaturess_RNA_detected < 2500)
+cellRef_filtered <- subset(cellRef,subset = nFeature_RNA > 200 & nFeature_RNA < 2500)
 ```
 
-### 2.3 subset by cell type
+HLCA and cellRef are combined datasets, Likely, they should not be filtered using nFeature.
 
 ```{r}
-unique(hlca$cell_type)
+## prior and after filter
+hlca@assays$RNA@counts@Dim
+hlca_filtered@assays$RNA@counts@Dim
 
-hlca_mucus_secreting <- subset(hlca, subset = cell_type == "mucus secreting cell")
-hlca_ionocyte <- subset(hlca, subset = cell_type == "ionocyte")
-hlca_2types <- subset(hlca, subset = cell_type %in% c("mucus secreting cell", "ionocyte"))
+cellRef$RNA@counts@Dim
+cellRef_filtered@assays$RNA@counts@Dim
+```
+
+### 2.3 Subset by cell type
+
+```{r}
+unique(hlca$ann_finest_level)
+unique(cellRef$celltype_level3_fullname)
+
+hlca_Alveolar_macrophages <- subset(hlca, subset = ann_finest_level == "Alveolar macrophages")
+hlca_Alveolar_fibroblasts <- subset(hlca, subset = ann_finest_level == "Alveolar fibroblasts")
+hlca_2alveolar <- subset(hlca, subset = ann_finest_level %in% c("Alveolar macrophages", "Alveolar fibroblasts"))
+
+cellRef_Alveolar_macrophage <- subset(cellRef, subset = celltype_level3_fullname == "Alveolar macrophage")
+cellRef_Alveolar_fibroblast2 <- subset(cellRef, subset = celltype_level3_fullname == "Alveolar fibroblast 2")
+cellRef_2alveolar <- subset(cellRef, subset = celltype_level3_fullname %in% c("Alveolar macrophage", "Alveolar fibroblast 2"))
 
 
-typeof(hlca_mucus_secreting)
-names(hlca_mucus_secreting)
-head(hlca_mucus_secreting$RNA)
-
-
-typeof(hlca_mucus_secreting$RNA)
-dim(hlca_mucus_secreting$RNA)
-head(hlca_mucus_secreting$RNA@counts)
+dim(hlca_2alveolar$RNA)
+dim(cellRef_2alveolar$RNA)
+head(hlca_2alveolar$RNA@counts)
+tail(cellRef_2alveolar$RNA@counts)
 
 
 ```
@@ -96,22 +141,16 @@ head(hlca_mucus_secreting$RNA@counts)
 
 ```{r}
 # hlca  is seurat object from readRDS
-sparse_matrix_mucus_secreting <- hlca_mucus_secreting@assays$RNA@counts
-hlca_matrix_mucus_secreting <- as.matrix(sparse_matrix_mucus_secreting) ## if use full dataset, it will generate 130G matrix
+hlca_matrix_Alveolar_macrophages <- as.matrix(hlca_Alveolar_macrophages@assays$RNA@counts)
+hlca_matrix_Alveolar_fibroblasts <- as.matrix(hlca_Alveolar_fibroblasts@assays$RNA@counts) 
+hlca_matrix_2alveolar <- as.matrix(hlca_2alveolar@assays$RNA@counts)
+hlca_matrix_2alveolar_labels<-c(rep('Alveolar macrophages',dim(hlca_matrix_Alveolar_macrophages)[2]),rep('Alveolar fibroblasts',dim(hlca_matrix_Alveolar_fibroblasts)[2]))
 
-sparse_matrix_ionocyte <- hlca_ionocyte@assays$RNA@counts
-hlca_matrix_ionocyte <- as.matrix(sparse_matrix_ionocyte) 
+cellRef_matrix_Alveolar_macrophage <- as.matrix(cellRef_Alveolar_macrophage@assays$RNA@counts)
+cellRef_matrix_Alveolar_fibroblast2 <- as.matrix(cellRef_Alveolar_fibroblast2@assays$RNA@counts) 
+cellRef_matrix_2alveolar <- as.matrix(cellRef_2alveolar@assays$RNA@counts)
+cellRef_matrix_2alveolar_labels<-c(rep('Alveolar macrophage',dim(cellRef_matrix_Alveolar_macrophage)[2]),rep('Alveolar fibroblast2',dim(cellRef_matrix_Alveolar_fibroblast2)[2]))
 
-sparse_matrix_2types<-hlca_2types@assays$RNA@counts
-hlca_matrix_2types <- as.matrix(sparse_matrix_2types) 
-hlca_matrix_2types_labels<-c(rep('mucus_secreting',dim(hlca_matrix_mucus_secreting)[2]),rep('ionocyte',dim(hlca_matrix_ionocyte)[2]))
-
-dim(hlca_matrix_2types)                            
-length(hlca_matrix_2types_labels)
-sum(is.na(hlca_matrix_2types))
-
-datSum<-rowSums(hlca_matrix_2types)
-datSum[1:10]
 ```
 
 ## 4. Calculate rate and probability
@@ -159,8 +198,12 @@ trainAllReference <- function(data,labels,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigm
 }
 
 
-hlca_2types.d <- trainAllReference(hlca_matrix_2types,hlca_matrix_2types_labels,discrim_only=FALSE)
-head(hlca_2types.d[[1]])
+hlca_2alveolar.d <- trainAllReference(hlca_matrix_2alveolar,hlca_matrix_2alveolar_labels,discrim_only=FALSE)
+head(hlca_2alveolar.d[[1]])
+
+cellRef_2alveolar.d <- trainAllReference(cellRef_matrix_2alveolar,cellRef_matrix_2alveolar_labels,discrim_only=FALSE)
+head(cellRef_2alveolar.d[[1]])
+
 ```
 
 ## 5. getBarcode
@@ -174,16 +217,18 @@ getBarcode<-function(d.list) {
   return(barcode)
 }
 
-barcodes <- getBarcode(hlca_2types.d)
+barcodes_hlca <- getBarcode(hlca_2alveolar.d)
+barcodes_hlca<- as.data.frame(barcodes_hlca)
+head(barcodes_hlca)
 
-barcodes<- as.data.frame(barcodes)
-head(barcodes)
-
+barcodes_cellRef <- getBarcode(cellRef_2alveolar.d)
+barcodes_cellRef<- as.data.frame(barcodes_cellRef)
+head(barcodes_cellRef)
 ```
 
 ```{r}
-for (cut_off in c(0.5,0.75,0.95)) {
-  cat("The following is the length of the expressed gene list for cell type mucus_secreting cell, and ionocyte, if the probability of gene expression is great than ", cut_off , "\n")
+for (cut_off in c(0.75,0.95)) {
+  cat("The following is the length of the expressed gene list for cell type Alve, and ionocyte, if the probability of gene expression is great than ", cut_off , "\n")
   
   mucus_secreting_geneList <-rownames(barcodes)[barcodes$`mucus_secreting` > cut_off]
   cat("mucus_secreting:", length(mucus_secreting_geneList), "\n")

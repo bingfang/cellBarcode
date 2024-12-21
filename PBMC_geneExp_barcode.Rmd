@@ -36,14 +36,11 @@ sigma.all.g <- params[[5]]
 mu.g<-c(-12.73153,-8.301349)
 ```
 
-## 2. Data Collection
+## 3. Data Collection and Preprocessing
 
 Input Data:
 
 PBMC demo data 
-
-
-## 3. Data Preprocessing
 
 PBMC data are raw counts after removing low quality cells. Default filtering was used to removed low quality cells.
 
@@ -161,7 +158,11 @@ trainAllReference <- function(data,labels,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigm
   return(d.list)
 }
 
+```
 
+View rate and probability for three state/mode 
+
+```{r}
 pbmcs.d <- trainAllReference(pbmcs_reference,pbmcs_reference_labels,discrim_only=FALSE)
 head(pbmcs.d[[1]])
 ```
