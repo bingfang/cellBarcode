@@ -62,10 +62,13 @@ cellRef = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/443
 summary(hlca@assays$RNA@meta.features$feature_type)
 head(hlca@assays$RNA@meta.features$feature_name)
 table(hlca@assays$RNA@meta.features$feature_is_filtered)
+table(hlca@meta.data$cell_type_ontology_term_id)
+table(hlca@meta.data$cell_type)
+table(hlca@meta.data$ann_finest_level)
 
 summary(cellRef@assays$RNA@meta.features$feature_type)
-head(cellRef@assays$RNA@meta.features$feature_name)
-cellRef@assays$RNA@meta.features$origSymbol
+head(cellRef@assays$RNA@meta.features$feature_name)  ## lncRNA use Ensemble ID
+head(cellRef@assays$RNA@meta.features$origSymbol)    ## lncRNA use symbol
 table(cellRef@assays$RNA@meta.features$feature_is_filtered)
 table(cellRef@meta.data$cell_type_ontology_term_id)
 table(cellRef@meta.data$putative_CL_label)
@@ -73,13 +76,17 @@ table(cellRef@meta.data$celltype_level3_fullname)
 
 
 ```
+Notes:
+cellRef anthors provided 47 cell ontology terms, which match to their 48 celltype_level3 clusters. They also provided putative cell ontology names.
+
+HLCA authors provided 50 cell ontology terms with 50 cell type names, which partially match to their 61 finest-level clusters.
 
 IncRNA ensembl ID may not be stable
 e.g. ENSG00000238009 
 Ensembl gene ENSG00000238009 is no longer in the database.It has been mapped to 1 current identifier  ENSG00000241860.
 
 
-### 2.2 remove low quality cells
+### 2.2 Remove low quality cells
 
 ```{}
 ## plot
@@ -103,7 +110,7 @@ cellRef_filtered <- subset(cellRef,subset = nFeature_RNA > 200 & nFeature_RNA < 
 
 HLCA and cellRef are combined datasets, Likely, they should not be filtered using nFeature.
 
-```{r}
+```{}
 ## prior and after filter
 hlca@assays$RNA@counts@Dim
 hlca_filtered@assays$RNA@counts@Dim
@@ -111,6 +118,12 @@ hlca_filtered@assays$RNA@counts@Dim
 cellRef$RNA@counts@Dim
 cellRef_filtered@assays$RNA@counts@Dim
 ```
+
+
+Notes:
+
+High percentage cells will be filtered if using "nFeature_RNA > 200 & nFeature_RNA < 2500". Likely, the combined dataset should not to performfiltering.
+
 
 ### 2.3 Subset by cell type
 
@@ -130,7 +143,7 @@ cellRef_2alveolar <- subset(cellRef, subset = celltype_level3_fullname %in% c("A
 dim(hlca_2alveolar$RNA)
 dim(cellRef_2alveolar$RNA)
 head(hlca_2alveolar$RNA@counts)
-tail(cellRef_2alveolar$RNA@counts)
+head(cellRef_2alveolar$RNA@counts)
 
 
 ```
@@ -145,6 +158,15 @@ hlca_matrix_Alveolar_macrophages <- as.matrix(hlca_Alveolar_macrophages@assays$R
 hlca_matrix_Alveolar_fibroblasts <- as.matrix(hlca_Alveolar_fibroblasts@assays$RNA@counts) 
 hlca_matrix_2alveolar <- as.matrix(hlca_2alveolar@assays$RNA@counts)
 hlca_matrix_2alveolar_labels<-c(rep('Alveolar macrophages',dim(hlca_matrix_Alveolar_macrophages)[2]),rep('Alveolar fibroblasts',dim(hlca_matrix_Alveolar_fibroblasts)[2]))
+
+dim(hlca_matrix_Alveolar_macrophages)[2]
+hlca_matrix_Alveolar_macrophages_labels<-c(rep('Alveolar macrophages',dim(hlca_matrix_Alveolar_macrophages)[2]))
+
+dim(hlca_matrix_Alveolar_fibroblasts)[2]
+hlca_matrix_Alveolar_fibroblasts_labels<-c(rep('Alveolar fibroblasts',dim(hlca_matrix_Alveolar_fibroblasts)[2]))
+length(hlca_matrix_Alveolar_fibroblasts_labels)
+
+
 
 cellRef_matrix_Alveolar_macrophage <- as.matrix(cellRef_Alveolar_macrophage@assays$RNA@counts)
 cellRef_matrix_Alveolar_fibroblast2 <- as.matrix(cellRef_Alveolar_fibroblast2@assays$RNA@counts) 
@@ -204,6 +226,14 @@ head(hlca_2alveolar.d[[1]])
 cellRef_2alveolar.d <- trainAllReference(cellRef_matrix_2alveolar,cellRef_matrix_2alveolar_labels,discrim_only=FALSE)
 head(cellRef_2alveolar.d[[1]])
 
+hlca_Alveolar_macrophages.d <- trainAllReference(hlca_matrix_Alveolar_macrophages,hlca_matrix_Alveolar_macrophages_labels,discrim_only=FALSE)
+head(hlca_Alveolar_macrophages.d[[1]])
+
+hlca_Alveolar_fibroblasts.d <- trainAllReference(hlca_matrix_Alveolar_fibroblasts,hlca_matrix_Alveolar_fibroblasts_labels,discrim_only=FALSE)
+head(hlca_Alveolar_fibroblasts.d[[1]])
+
+
+
 ```
 
 ## 5. getBarcode
@@ -227,20 +257,93 @@ head(barcodes_cellRef)
 ```
 
 ```{r}
-for (cut_off in c(0.75,0.95)) {
-  cat("The following is the length of the expressed gene list for cell type Alve, and ionocyte, if the probability of gene expression is great than ", cut_off , "\n")
+
+for(cell_type in c("Alveolar macrophages","Alveolar fibroblasts"))
+{
+  for (cut_off in c(0.75,0.95)) {
+    cat("The length of the expressed gene list for ", cell_type, "when the probability of gene expression is great than ", cut_off , "\n")
   
-  mucus_secreting_geneList <-rownames(barcodes)[barcodes$`mucus_secreting` > cut_off]
-  cat("mucus_secreting:", length(mucus_secreting_geneList), "\n")
-  write.table(mucus_secreting_geneList, file = paste0("mucus_secreting", cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
-  ionocyte_geneList <-rownames(barcodes)[barcodes$`ionocyte` > cut_off]
-  cat("ionocyte:", length(ionocyte_geneList), "\n")
-  write.table(ionocyte_geneList, file = paste0("ionocyte", cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+    geneList <-rownames(barcodes_hlca)[barcodes_hlca[, cell_type] > cut_off]
+    cat(cell_type, length(geneList), "\n")
+    write.table(geneList, file = paste0(cell_type, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
   
+  }
+}
+
+
+
+for(cell_type in c("Alveolar macrophage","Alveolar fibroblast2")){
+  for (cut_off in c(0.75,0.95)) {
+    cat("The length of the expressed gene list for ", cell_type, "when the probability of gene expression is great than ", cut_off , "\n")
+  
+    geneList <-rownames(barcodes_cellRef)[barcodes_cellRef[, cell_type] > cut_off]
+    cat(cell_type, length(geneList), "\n")
+    write.table(geneList, file = paste0(cell_type, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  
+  }
 }
 ```
 
-## 6. Visualization
+## 6. Visualization and validation of the gene expression list
+
+1. check probability of NS-forest marker gene expression
+
+                     HLCA_NSForestMarkers	CellRef_NSForestMarkers
+Alveolar macrophages ['MSR1', 'FABP4']	['MCEMP1', 'ACP5']
+Alveolar Fibroblasts ['AOC3', 'LUM']	['SCN7A', 'ITGA8']
+
+MSR1 ENSG00000038945 
+FABP4 ENSG00000170323 
+MCEMP1 ENSG00000183019
+ACP5 ENSG00000102575
+
+AOC3 ENSG00000131471 
+LUM ENSG00000139329
+SCN7A ENSG00000136546
+ITGA8 ENSG00000077943 
+
+
+MSR1 ENSG00000038945
+hlca_2alveolar.d[[1]]["ENSG00000038945",] # 97% chance that MSR1 is expresed in Alveolar macrophages
+hlca_2alveolar.d[[2]]["ENSG00000038945",] # 97% chance that MSR1 is expresed in Alveolar Fibroblasts
+ 
+cellRef_2alveolar.d[[1]]["ENSG00000038945",] # 91% chance that MSR1 is expresed in Alveolar macrophages
+cellRef_2alveolar.d[[2]]["ENSG00000038945",] # 22% chance that MSR1 is expresed in Alveolar Fibroblasts
+
+
+
+```{r}
+
+df_fibroblast_marker<-hlca_Alveolar_macrophages.d[[1]][1,]
+for(id in c("ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")){
+    df_fibroblast_marker<-rbind(df_fibroblast_marker,hlca_2alveolar.d$`Alveolar macrophages`[id,],cellRef_2alveolar.d$`Alveolar macrophage`[id,],hlca_2alveolar.d$`Alveolar fibroblasts`[id,],cellRef_2alveolar.d$`Alveolar fibroblast2`[id,]) 
+}
+df_fibroblast_marker[2:17,]
+
+df_macrophages_marker<-hlca_Alveolar_macrophages.d[[1]][1,]
+marker_Alveolar_macrophages<-c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575")
+for(id in marker_Alveolar_macrophages){
+    df_macrophages_marker<-rbind(df_macrophages_marker,hlca_2alveolar.d$`Alveolar macrophages`[id,],cellRef_2alveolar.d$`Alveolar macrophage`[id,],hlca_2alveolar.d$`Alveolar fibroblasts`[id,],cellRef_2alveolar.d$`Alveolar fibroblast2`[id,])
+ 
+}
+df_macrophages_marker[2:17,]
+
+df_8marker_in_macrophages<-hlca_Alveolar_macrophages.d[[1]][1,]
+for(id in c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")){
+    
+    df_8marker_in_macrophages<-rbind(df_8marker_in_macrophages,hlca_Alveolar_macrophages.d$`Alveolar macrophages`[id,])
+  
+}
+print(df_8marker_in_macrophages[2:9,])
+
+
+df_8marker_in_fibroblast<-hlca_Alveolar_macrophages.d[[1]][1,]
+for(id in c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")){
+    
+    df_8marker_in_fibroblast<-rbind(df_8marker_in_fibroblast,hlca_Alveolar_fibroblasts.d$`Alveolar fibroblasts`[id,])
+  
+}
+print(df_8marker_in_fibroblast[2:9,])
 
 ```{r}
 library(clusterProfiler)
