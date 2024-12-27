@@ -76,6 +76,7 @@ table(cellRef@meta.data$celltype_level3_fullname)
 
 
 ```
+
 Notes:
 cellRef anthors provided 47 cell ontology terms, which match to their 48 celltype_level3 clusters. They also provided putative cell ontology names.
 
@@ -125,59 +126,9 @@ Notes:
 High percentage cells will be filtered if using "nFeature_RNA > 200 & nFeature_RNA < 2500". Likely, the combined dataset should not to performfiltering.
 
 
-### 2.3 Subset by cell type
+## 3 Functions
 
-```{r}
-unique(hlca$ann_finest_level)
-unique(cellRef$celltype_level3_fullname)
-
-hlca_Alveolar_macrophages <- subset(hlca, subset = ann_finest_level == "Alveolar macrophages")
-hlca_Alveolar_fibroblasts <- subset(hlca, subset = ann_finest_level == "Alveolar fibroblasts")
-hlca_2alveolar <- subset(hlca, subset = ann_finest_level %in% c("Alveolar macrophages", "Alveolar fibroblasts"))
-
-cellRef_Alveolar_macrophage <- subset(cellRef, subset = celltype_level3_fullname == "Alveolar macrophage")
-cellRef_Alveolar_fibroblast2 <- subset(cellRef, subset = celltype_level3_fullname == "Alveolar fibroblast 2")
-cellRef_2alveolar <- subset(cellRef, subset = celltype_level3_fullname %in% c("Alveolar macrophage", "Alveolar fibroblast 2"))
-
-
-dim(hlca_2alveolar$RNA)
-dim(cellRef_2alveolar$RNA)
-head(hlca_2alveolar$RNA@counts)
-head(cellRef_2alveolar$RNA@counts)
-
-
-```
-
-
-## 2.4 geneXcell matrix
-
-
-```{r}
-# hlca  is seurat object from readRDS
-hlca_matrix_Alveolar_macrophages <- as.matrix(hlca_Alveolar_macrophages@assays$RNA@counts)
-hlca_matrix_Alveolar_fibroblasts <- as.matrix(hlca_Alveolar_fibroblasts@assays$RNA@counts) 
-hlca_matrix_2alveolar <- as.matrix(hlca_2alveolar@assays$RNA@counts)
-hlca_matrix_2alveolar_labels<-c(rep('Alveolar macrophages',dim(hlca_matrix_Alveolar_macrophages)[2]),rep('Alveolar fibroblasts',dim(hlca_matrix_Alveolar_fibroblasts)[2]))
-
-dim(hlca_matrix_Alveolar_macrophages)[2]
-hlca_matrix_Alveolar_macrophages_labels<-c(rep('Alveolar macrophages',dim(hlca_matrix_Alveolar_macrophages)[2]))
-
-dim(hlca_matrix_Alveolar_fibroblasts)[2]
-hlca_matrix_Alveolar_fibroblasts_labels<-c(rep('Alveolar fibroblasts',dim(hlca_matrix_Alveolar_fibroblasts)[2]))
-length(hlca_matrix_Alveolar_fibroblasts_labels)
-
-
-
-cellRef_matrix_Alveolar_macrophage <- as.matrix(cellRef_Alveolar_macrophage@assays$RNA@counts)
-cellRef_matrix_Alveolar_fibroblast2 <- as.matrix(cellRef_Alveolar_fibroblast2@assays$RNA@counts) 
-cellRef_matrix_2alveolar <- as.matrix(cellRef_2alveolar@assays$RNA@counts)
-cellRef_matrix_2alveolar_labels<-c(rep('Alveolar macrophage',dim(cellRef_matrix_Alveolar_macrophage)[2]),rep('Alveolar fibroblast2',dim(cellRef_matrix_Alveolar_fibroblast2)[2]))
-
-```
-
-## 4. Calculate rate and probability
-
-
+### 3.1 calculate rate and three state probabilities
 
 ```{r, message=FALSE}
 
@@ -219,24 +170,9 @@ trainAllReference <- function(data,labels,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigm
   return(d.list)
 }
 
-
-hlca_2alveolar.d <- trainAllReference(hlca_matrix_2alveolar,hlca_matrix_2alveolar_labels,discrim_only=FALSE)
-head(hlca_2alveolar.d[[1]])
-
-cellRef_2alveolar.d <- trainAllReference(cellRef_matrix_2alveolar,cellRef_matrix_2alveolar_labels,discrim_only=FALSE)
-head(cellRef_2alveolar.d[[1]])
-
-hlca_Alveolar_macrophages.d <- trainAllReference(hlca_matrix_Alveolar_macrophages,hlca_matrix_Alveolar_macrophages_labels,discrim_only=FALSE)
-head(hlca_Alveolar_macrophages.d[[1]])
-
-hlca_Alveolar_fibroblasts.d <- trainAllReference(hlca_matrix_Alveolar_fibroblasts,hlca_matrix_Alveolar_fibroblasts_labels,discrim_only=FALSE)
-head(hlca_Alveolar_fibroblasts.d[[1]])
-
-
-
 ```
 
-## 5. getBarcode
+### getBarcode
 
 ```{r}
 getBarcode<-function(d.list) {
@@ -246,42 +182,82 @@ getBarcode<-function(d.list) {
   rownames(barcode) <- rownames(d.list[[1]])
   return(barcode)
 }
-
-barcodes_hlca_Alveolar_fibroblasts <- getBarcode(hlca_Alveolar_fibroblasts.d)
-barcodes_hlca_Alveolar_fibroblasts<- as.data.frame(barcodes_hlca_Alveolar_fibroblasts)
-head(barcodes_hlca_Alveolar_fibroblasts)
-
-barcodes_hlca_Alveolar_macrophages <- getBarcode(hlca_Alveolar_macrophages.d)
-barcodes_hlca_Alveolar_macrophages<- as.data.frame(barcodes_hlca_Alveolar_macrophages)
-head(barcodes_hlca_Alveolar_macrophages)
 ```
+
+### Run by cell type
 
 ```{r}
 
-for(cell_type in c("Alveolar macrophages","Alveolar fibroblasts"))
-{
-  for (cut_off in c(0.75,0.95)) {
-    cat("The length of the expressed gene list for ", cell_type, "when the probability of gene expression is great than ", cut_off , "\n")
+## for cellRef, meta_feature is "celltype_level3_fullname"
+generateCellType_barcode <- function(seurat_dataset, cellType, cut_off){
+  # sebset by cell type
+  data_subset <- subset(seurat_dataset, subset = celltype_level3_fullname == cellType)
+  matrix<- as.matrix(data_subset@assays$RNA@counts)
+  dim(matrix)[2]
+  labels<-c(rep(cell_type,dim(matrix)[2]))
+  length(labels)
   
-    geneList <-rownames(barcodes_hlca)[barcodes_hlca[, cell_type] > cut_off]
-    cat(cell_type, length(geneList), "\n")
-    write.table(geneList, file = paste0(cell_type, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  # calculte rate and probability
+  data.d <- trainAllReference(matrix,labels,discrim_only=FALSE)
+
+  # get barcode and gene list
+  barcodes <- getBarcode(data.d)
+  geneList <-rownames(barcodes)[barcodes > cut_off]
+  length(geneList)
+  write.table(geneList, file = paste0(cellType, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  return(barcodes)
   
-  }
+}
+
+unique(cellRef$celltype_level3_fullname)
+uNique(cellRef$putative_CL_label)
+barcode_dic={}
+seurat_dataset<-cellRef
+cellType<-"Alveolar fibroblast 2"
+cell_type <-gsub(" ","_",cellType)
+cut_off<-0.75
+code<-generateCellType_barcode(cellRef, cellType, cut_off)
+barcode_dic$cell_type<-as.data.frame(code) 
+head(barcode_dic$cell_type)
+
+df_8marker<-paste("id" , "barcode" , "cell_type",sep="\t")
+for(id in c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")){
+    line<-paste(id, barcode_dic$cell_type[id,],cell_type,sep="\t")
+    df_8marker<-rbind(df_8marker,line)
+  
 }
 
 
+```
 
-for(cell_type in c("Alveolar macrophage","Alveolar fibroblast2")){
-  for (cut_off in c(0.75,0.95)) {
-    cat("The length of the expressed gene list for ", cell_type, "when the probability of gene expression is great than ", cut_off , "\n")
-  
-    geneList <-rownames(barcodes_cellRef)[barcodes_cellRef[, cell_type] > cut_off]
-    cat(cell_type, length(geneList), "\n")
-    write.table(geneList, file = paste0(cell_type, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
-  
+
+## loop through multiple cell types
+
+
+```{}
+
+runBatch<-function(seurat_dataset,cell_type_list,cut_off_list){
+  dic ={}
+  for(cellType in cell_type_list){
+   
+    for (cut_off in cut_off_list) {
+      
+      code<-generateCellType_barcode(seurat_dataset, cellType, cut_off)
+      print(head(code))
+      cell_type <-paste0(gsub(" ","_",cellType), "_",cut_off)
+      print(cell_type)
+      dic$cell_type<-as.data.frame(code) 
+    }
   }
+  return(dic)
 }
+
+cell_type_list <- c("Alveolar macrophage","Alveolar fibroblast2")
+cut_off_list <- c(0.75,0.95)
+barcode_dic1<-runBatch(cellRef,cell_type_list,cut_off_list)
+
+
+
 ```
 
 ## 6. Visualization and validation of the gene expression list
