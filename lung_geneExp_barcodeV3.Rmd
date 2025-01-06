@@ -1,7 +1,7 @@
 ---
 title: "Data plan for geneExp"
 author: "Bingfang"
-date: "12/20/2024"
+date: "1/2/2025"
 output: html_document
 ---
 
@@ -16,8 +16,8 @@ Identify a list of true expressed genes of a specific cell type, which will use 
 ## 2. Set environment
 
 
-```{r, echo=TRUE,warning=FALSE,message=FALSE}
-#install.packages("sads")  # not working on local MAC
+```{r, echo=TRUE,warning=FALSE,message=FALSE, results='hide'}
+#install.packages("sads")  
 library(sads)
 #install.packages("BiocParallel")
 library(BiocParallel)
@@ -28,11 +28,12 @@ library(Matrix)
 # package for goenrichment
 library(clusterProfiler)
 library(AnnotationDbi)
+# package for Venn diagram
+library(gplots, lib.loc = "/usr/local/apps/R/4.4/site-library_4.4.2")
 
 # Get gene-specific distributions
 # Publication:https://academic.oup.com/biostatistics/article/23/4/1150/6622011
 # https://github.com/igrabski/scRNAseq-cell-type
-
 load('params_EM_81020.rda') 
 pi.all.g <- params[[1]]         # π-null,π-off, probabilty of null and off state.    
 g.on.all.g <- params[[2]]       # σ1j⁠
@@ -43,42 +44,37 @@ mu.g<-c(-12.73153,-8.301349)    # global means for gene rates on a log scale, (�
 
 ```
 
-## 2. Data collection and preprocess.
+## 3. Data 
 
-### 2.1 Read .rds file
-
-HLCA data from cellXgene
-
+HLCA core data from cellXgene
 cellRef data from cellXgene
 
-The authors of cellRef match "celltype_level3_fullname" with "putative CL label" and "CL term"
 
-```{r, results='hide'} 
-
+```{r, echo=TRUE,warning=FALSE,message=FALSE} 
+## Read .rds file
 hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
 cellRef = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/443f7fb8-2a27-47c3-98f6-6a603c7a294e_cellRef.rds")
 
-
+## Preview the dataset
 summary(hlca@assays$RNA@meta.features$feature_type)
-head(hlca@assays$RNA@meta.features$feature_name)
-table(hlca@assays$RNA@meta.features$feature_is_filtered)
+#head(hlca@assays$RNA@meta.features$feature_name)
+#table(hlca@assays$RNA@meta.features$feature_is_filtered)
 table(hlca@meta.data$cell_type_ontology_term_id)
 table(hlca@meta.data$cell_type)
 table(hlca@meta.data$ann_finest_level)
 
 summary(cellRef@assays$RNA@meta.features$feature_type)
-head(cellRef@assays$RNA@meta.features$feature_name)  ## lncRNA use Ensemble ID
-head(cellRef@assays$RNA@meta.features$origSymbol)    ## lncRNA use symbol
-table(cellRef@assays$RNA@meta.features$feature_is_filtered)
+#head(cellRef@assays$RNA@meta.features$feature_name)  ## lncRNA use Ensemble ID
+#head(cellRef@assays$RNA@meta.features$origSymbol)    ## lncRNA use symbol
+#table(cellRef@assays$RNA@meta.features$feature_is_filtered)
 table(cellRef@meta.data$cell_type_ontology_term_id)
 table(cellRef@meta.data$putative_CL_label)
 table(cellRef@meta.data$celltype_level3_fullname)
 
-
 ```
 
 Notes:
-cellRef anthors provided 47 cell ontology terms, which match to their 48 celltype_level3 clusters. They also provided putative cell ontology names.
+cellRef authors provided 47 cell ontology terms, which match to their 48 celltype_level3 clusters. They also provided putative cell ontology names.
 
 HLCA authors provided 50 cell ontology terms with 50 cell type names, which partially match to their 61 finest-level clusters.
 
@@ -87,7 +83,9 @@ e.g. ENSG00000238009
 Ensembl gene ENSG00000238009 is no longer in the database.It has been mapped to 1 current identifier  ENSG00000241860.
 
 
-### 2.2 Remove low quality cells
+## 4 QC 
+
+### 4.1 plot
 
 ```{}
 ## plot
@@ -100,18 +98,19 @@ jpeg(file="cellRef_nFeature.jpeg")
 VlnPlot(cellRef, features = c("nFeature_RNA", "nCount_RNA"), ncol = 2)
 dev.off()
 
-## filter
 
+```
+
+### 4.2 Remove low quality cells
+
+```{r,echo=TRUE,warning=FALSE,message=FALSE}
+## filter
 ## need to convert to gene symbol to filter percent.mt < 5
 ## pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^MT-")
 
 hlca_filtered <- subset(hlca, subset = nFeaturess_RNA_detected > 200 & nFeaturess_RNA_detected < 2500)
 cellRef_filtered <- subset(cellRef,subset = nFeature_RNA > 200 & nFeature_RNA < 2500)
-```
 
-HLCA and cellRef are combined datasets, Likely, they should not be filtered using nFeature.
-
-```{}
 ## prior and after filter
 hlca@assays$RNA@counts@Dim
 hlca_filtered@assays$RNA@counts@Dim
@@ -123,12 +122,15 @@ cellRef_filtered@assays$RNA@counts@Dim
 
 Notes:
 
-High percentage cells will be filtered if using "nFeature_RNA > 200 & nFeature_RNA < 2500". Likely, the combined dataset should not to performfiltering.
+
+HLCA and cellRef are combined datasets, Likely, they should not be filtered using nFeature.
+High percentage cells will be filtered if using "nFeature_RNA > 200 & nFeature_RNA < 2500". 
 
 
-## 3 Functions
+## 5. Calculate rate,three state probabilities,and barcode
 
-### 3.1 calculate rate and three state probabilities
+Functions from the 2022 Biostatistics paper
+
 
 ```{r, message=FALSE}
 
@@ -170,11 +172,8 @@ trainAllReference <- function(data,labels,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigm
   return(d.list)
 }
 
-```
 
-### getBarcode
-
-```{r}
+# getBarcode
 getBarcode<-function(d.list) {
   barcode <- sapply(d.list,function(x) 1-x[,2]-x[,3])      # ### Barcode is   ln2=prob.ln2/(prob.exp+prob.ln1+prob.ln2) if greater than 0
   barcode[barcode<0] <- 0
@@ -184,18 +183,26 @@ getBarcode<-function(d.list) {
 }
 ```
 
-### Run by cell type
 
-```{r}
+## 6. Output expressed gene lists and barcode dataframes for cell type
+
+Function to un individual or a list of cell types
+
+```{r, message=FALSE}
 
 ## for cellRef, meta_feature is "celltype_level3_fullname"
-generateCellType_barcode <- function(seurat_dataset, cellType, cut_off){
-  # sebset by cell type
+## for hlca, meta_feature is "ann_finest_level"
+## Run individual cell type.
+generateCellType_barcode <- function(seurat_dataset,dataset_name, cellType, cut_off){
+  # subset by cell type
+  if(dataset_name=="hlca") {
+  data_subset <- subset(seurat_dataset, subset = ann_finest_level == cellType)
+  } else if(dataset_name=="cellRef"){
   data_subset <- subset(seurat_dataset, subset = celltype_level3_fullname == cellType)
+  }
   matrix<- as.matrix(data_subset@assays$RNA@counts)
-  dim(matrix)[2]
-  labels<-c(rep(cell_type,dim(matrix)[2]))
-  length(labels)
+
+  labels<-c(rep(cellType,dim(matrix)[2]))
   
   # calculte rate and probability
   data.d <- trainAllReference(matrix,labels,discrim_only=FALSE)
@@ -209,60 +216,26 @@ generateCellType_barcode <- function(seurat_dataset, cellType, cut_off){
   
 }
 
-unique(cellRef$celltype_level3_fullname)
-uNique(cellRef$putative_CL_label)
-barcode_dic={}
-seurat_dataset<-cellRef
-cellType<-"Alveolar fibroblast 2"
-cell_type <-gsub(" ","_",cellType)
-cut_off<-0.75
-code<-generateCellType_barcode(cellRef, cellType, cut_off)
-barcode_dic$cell_type<-as.data.frame(code) 
-head(barcode_dic$cell_type)
 
-df_8marker<-paste("id" , "barcode" , "cell_type",sep="\t")
-for(id in c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")){
-    line<-paste(id, barcode_dic$cell_type[id,],cell_type,sep="\t")
-    df_8marker<-rbind(df_8marker,line)
-  
-}
-
-
-```
-
-
-## loop through multiple cell types
-
-
-```{}
-
-runBatch<-function(seurat_dataset,cell_type_list,cut_off_list){
+## Run multiple cell types
+runBatch<-function(seurat_dataset,dataset_name,cell_type_list,cut_off_list){
   dic ={}
   for(cellType in cell_type_list){
    
     for (cut_off in cut_off_list) {
       
-      code<-generateCellType_barcode(seurat_dataset, cellType, cut_off)
+      code<-generateCellType_barcode(seurat_dataset, dataset_name,cellType, cut_off)
       print(head(code))
-      cell_type <-paste0(gsub(" ","_",cellType), "_",cut_off)
-      print(cell_type)
-      dic$cell_type<-as.data.frame(code) 
+      dic[[cellType]]<-as.data.frame(code) 
     }
   }
   return(dic)
 }
 
-cell_type_list <- c("Alveolar macrophage","Alveolar fibroblast2")
-cut_off_list <- c(0.75,0.95)
-barcode_dic1<-runBatch(cellRef,cell_type_list,cut_off_list)
-
-
-
 ```
 
-## 6. Visualization and validation of the gene expression list
+## 7. Validate the expression probabilities using know expressed genes e.g NS-forest markers
 
-1. check probability of NS-forest marker gene expression
 
                      HLCA_NSForestMarkers	CellRef_NSForestMarkers
 Alveolar macrophages ['MSR1', 'FABP4']	['MCEMP1', 'ACP5']
@@ -278,95 +251,128 @@ LUM ENSG00000139329
 SCN7A ENSG00000136546
 ITGA8 ENSG00000077943 
 
+```{r, message=FALSE,warning=FALSE}
 
-MSR1 ENSG00000038945
-hlca_2alveolar.d[[1]]["ENSG00000038945",] # 97% chance that MSR1 is expresed in Alveolar macrophages
-hlca_2alveolar.d[[2]]["ENSG00000038945",] # 97% chance that MSR1 is expresed in Alveolar Fibroblasts
+## cell type name
+unique(cellRef$celltype_level3_fullname)
+unique(hlca$ann_finest_level)
+
+
+## markers
+marker<-c('Alveolar macrophage_HLCA_marker', 'Alveolar macrophage_HLCA_marker','Alveolar macrophage_cellRef_marker', 'Alveolar macrophage_cellRef_marker','Alveolar fibroblast 2_HLCA_marker', 'Alveolar fibroblast 2_HLCA_marker','Alveolar fibroblast 2_cellRef_marker', 'Alveolar fibroblast 2_cellRef_marker')
+sym<-c('MSR1', 'FABP4','MCEMP1', 'ACP5','AOC3', 'LUM','SCN7A', 'ITGA8')
+id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")
+
+
+## run 2 cell-type in HLCA
+seurat_dataset<-hlca
+dataset_name <-"hlca"
+cell_type_list <- c("Alveolar macrophages","Alveolar fibroblasts", "AT1")
+cut_off_list <- c(0.75,0.95)
+barcode_dic2<-runBatch(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
+data_name<-rep("hlca", length(id))
+
+checkGene <- function(id,sym, barcode_dic, marker, data_name){
+  df_cell_type_gene<-data.frame(matrix(vector(), 0, 6,
+                dimnames=list(c(), c("id", "sym", "barcode","marker", "cellType", "data"))),
+                stringsAsFactors=F)
+  for(i in 1:length(barcode_dic)){
+    barcode<-barcode_dic[[i]][id,]
+    df = data.frame(id=id,sym=sym, barcode=barcode, marker=marker,cellType=names(barcode_dic)[i], data=data_name)
+    df_cell_type_gene <- rbind(df_cell_type_gene, df)
+  }
+  return(df_cell_type_gene)
+}
+
+df_hlca_gene<-checkGene(id,sym, barcode_dic=barcode_dic2, marker, data_name)
  
-cellRef_2alveolar.d[[1]]["ENSG00000038945",] # 91% chance that MSR1 is expresed in Alveolar macrophages
-cellRef_2alveolar.d[[2]]["ENSG00000038945",] # 22% chance that MSR1 is expresed in Alveolar Fibroblasts
 
 
 
-### Probability of 4 Alveolar Fibroblasts markers detected in Alveolar Fibroblasts cluster in hlca and cellRef
+ ## run 2 cell-type in cellRef
+seurat_dataset<- cellRef
+dataset_name <- "cellRef"
+cell_type_list <- c("Alveolar macrophage","Alveolar fibroblast 2","Alveolar type 1 cell")
+cut_off_list <- c(0.75,0.95)
+barcode_dic1<-runBatch(cellRef,dataset_name,cell_type_list,cut_off_list)
 
-```{r}
+name<-rep("cellRef", length(id))
+df_cellRef_gene<-checkGene(id,sym, barcode_dic=barcode_dic1, marker, data_name=name)
 
-df_fibroblast_marker<-hlca_2alveolar.d[[1]][1,]
-for(id in c("ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")){
-    
-    df_fibroblast_marker<-rbind(df_fibroblast_marker,hlca_Alveolar_fibroblasts.d$`Alveolar fibroblasts`[id,],cellRef_2alveolar.d$`Alveolar fibroblast2`[id,]) 
-}
 
-for(id in c("ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")){
-    #df_fibroblast_marker$cluster<-c("Alveolar macrophages")
-    df_fibroblast_marker<-rbind(df_fibroblast_marker,hlca_Alveolar_macrophages.d$`Alveolar macrophages`[id,],cellRef_2alveolar.d$`Alveolar macrophage`[id,]) 
-}
-df_fibroblast_marker <- df_fibroblast_marker[2:17,]
-df_fibroblast_marker
-
+cell_type_gene<-rbind(df_cellRef_gene,df_hlca_gene)
+cell_type_gene
+write.table(cell_type_gene, 'cell_type_gene.tsv', sep = "\t",row.names = FALSE,col.names = TRUE)
 ```
 
-### Probability of 4 Alveolar macrophages markers detected in Alveolar macrophages cluster and in Alveolar fibroblasts
+## 8. Generate go term associated with cell type and compare with the known go term of the cell type.
 
+extracted_object:
+  id: 8e71666c-a590-4970-8794-fc0dae7a2760
+  label: Type I pneumocyte
+  biological_processes:
+    - AUTO:gas%20exchange
+    - GO:0003016
+    - GO:0015671
+    - GO:0015670
+  cellular_component:
+    - AUTO:alveolar%20surface
+    - AUTO:pulmonary%20capillary
+    - AUTO:air-blood%20barrier
+named_entities:
+  - id: AUTO:gas%20exchange
+    label: gas exchange
+  - id: GO:0003016
+    label: respiratory gaseous exchange
+  - id: GO:0015671
+    label: oxygen transport
+  - id: GO:0015670
+    label: carbon dioxide transport
+  - id: AUTO:alveolar%20surface
+    label: alveolar surface
+  - id: AUTO:pulmonary%20capillary
+    label: pulmonary capillary
+  - id: AUTO:air-blood%20barrier
+    label: air-blood barrier
 ```{r}
 
-
-marker_Alveolar_macrophages<-c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575")
-df_macrophages_marker<-hlca_2alveolar.d[[1]][1,]
-for(id in marker_Alveolar_macrophages){
-    
-    #df_fibroblast_marker$cluster<-c("Alveolar macrophages")
-    df_macrophages_marker<-rbind(df_macrophages_marker,hlca_2alveolar.d$`Alveolar macrophages`[id,],cellRef_2alveolar.d$`Alveolar macrophage`[id,]) 
-}
-
-for(id in marker_Alveolar_macrophages){
-    df_macrophages_marker<-rbind(df_macrophages_marker,hlca_2alveolar.d$`Alveolar fibroblasts`[id,],cellRef_2alveolar.d$`Alveolar fibroblast2`[id,]) 
-}
-
-
-df_macrophages_marker <- df_macrophages_marker[2:17,]
-df_macrophages_marker
-
-
-```
-
-df_8marker_in_macrophages<-hlca_Alveolar_macrophages.d[[1]][1,]
-for(id in c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")){
-    
-    df_8marker_in_macrophages<-rbind(df_8marker_in_macrophages,hlca_Alveolar_macrophages.d$`Alveolar macrophages`[id,])
-  
-}
-print(df_8marker_in_macrophages[2:9,])
-
-
-df_8marker_in_fibroblast<-hlca_Alveolar_macrophages.d[[1]][1,]
-for(id in c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")){
-    
-    df_8marker_in_fibroblast<-rbind(df_8marker_in_fibroblast,hlca_Alveolar_fibroblasts.d$`Alveolar fibroblasts`[id,])
-  
-}
-print(df_8marker_in_fibroblast[2:9,])
-
-```{r}
 library(clusterProfiler)
-mucus_secreting_geneList
-go_mucus_secreting <- enrichGO(gene=mucus_secreting_geneList, OrgDb="org.Hs.eg.db",keyType = "ENSEMBL", ont="BP")
-go_mucus_secreting_df <-as.data.frame(go_mucus_secreting)
-colnames(go_mucus_secreting_df)
+geneList <- read.csv("AT10.75.tsv")
+gene<-unlist(geneList)
+go <- enrichGO(gene=gene, OrgDb="org.Hs.eg.db",keyType = "ENSEMBL", ont="BP")
+go_df <-as.data.frame(go)
+write.table(go_df, 'AT1_075_go_term.tsv', sep = "\t",row.names = FALSE,col.names = TRUE)
 ```
 
-## 7. Validation
+## 9. More Validation
 
-Compare results of the same cell types from different datasets e.g. cellRef vs. Hlca
+### Compare results of the same cell types from different datasets e.g. cellRef vs. Hlca
 
-Compare results from different cell types. e.g. mucus_secreting cell vs. ionocyte.
+
+```{r, warning=FALSE}
+
+geneList_cellRef_Alveolar_fibroblast <- read.csv("Alveolar fibroblast 20.75.tsv")
+geneList_hlca_Alveolar_fibroblast <- read.csv("Alveolar fibroblasts0.75.tsv")
+venn(list(cellRef_Alveolar_fibroblast=geneList_cellRef_Alveolar_fibroblast,hlca_Alveolar_fibroblast=geneList_hlca_Alveolar_fibroblast))
+
+```
+
+### Compare results from different cell types. e.g. mucus_secreting cell vs. ionocyte.
+
+```{r}
+geneList_cellRef_Alveolar_fibroblast <- read.csv("Alveolar fibroblast 20.75.tsv")
+geneList_cellRef_Alveolar_macrophages <- read.csv("Alveolar macrophages0.75.tsv")
+geneList_cellRef_type1 <- read.csv("Alveolar type 1 cell0.75.tsv")
+venn(list(cellRef_Alveolar_fibroblast=geneList_cellRef_Alveolar_fibroblast,cellRef_Alveolar_macrophages=geneList_cellRef_Alveolar_macrophages))
+
+```
+
+Generate DE gene list and compared with transitional DE list.
+
+
 
 Subsampling, Bootstrap Aggregation,Perturbation ( add 10% cells from other cell type)
 
-Compare with the known go term of the cell type.
-
-## 8. Interpretation
-
-## 9. Reporting
+## 10. Reporting
 Summarize findings in a detailed report or manuscript with figures and statistical analyses.
+
