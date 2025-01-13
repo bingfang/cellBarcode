@@ -35,7 +35,7 @@ library(gplots, lib.loc = "/usr/local/apps/R/4.4/site-library_4.4.2")
 # Publication:https://academic.oup.com/biostatistics/article/23/4/1150/6622011
 # https://github.com/igrabski/scRNAseq-cell-type
 load('params_EM_81020.rda') 
-pi.all.g <- params[[1]]         # π-null,π-off, probabilty of null and off state.    
+pi.all.g <- params[[1]]         # π-null,π-off, probability of null and off state.    
 g.on.all.g <- params[[2]]       # σ1j⁠
 g.off.all.g <- params[[3]]      # σ0j
 a.all.g <- params[[4]]          # αj⁠
@@ -43,6 +43,36 @@ sigma.all.g <- params[[5]]      # μ0j,μ1j shift from (μ0 , μ1)
 mu.g<-c(-12.73153,-8.301349)    # global means for gene rates on a log scale, (μ0 , μ1)
 
 ```
+
+
+```{r}
+# MCEMP1
+sum(pi.all.g["ENSG00000183019",])
+g.on.all.g["ENSG00000183019"]
+g.off.all.g["ENSG00000183019"]
+a.all.g["ENSG00000183019"]
+sigma.all.g["ENSG00000183019",]+mu.g
+
+
+#MSR1
+sum(pi.all.g["ENSG00000038945",])
+g.on.all.g["ENSG00000038945"]
+g.off.all.g["ENSG00000038945"]
+a.all.g["ENSG00000038945"]
+sigma.all.g["ENSG00000038945",]+mu.g
+
+id <- c("ENSG00000038945","ENSG00000170323","ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943","ENSG00000131097","ENSG00000171303","ENSG00000172137","ENSG00000116690","ENSG00000243566","ENSG00000204305","ENSG00000182010")
+sym<-c('MSR1', 'FABP4','MCEMP1', 'ACP5','AOC3', 'LUM', 'SCN7A', 'ITGA8', 'HIGD1B', 'KCNK3', 'CALB2', 'PRG4', 'UPK3B' ,'AGER','RTKN2')
+for(i in 1:15){
+  cat(id[i],sym[i],"probability of null and off states")
+ 
+  print(sum(pi.all.g[id[i],]))
+}
+
+```
+
+10 out of 15 marker genes are considered as always-off genes.
+
 
 ## 3. Data 
 
@@ -59,17 +89,24 @@ cellRef = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/443
 summary(hlca@assays$RNA@meta.features$feature_type)
 #head(hlca@assays$RNA@meta.features$feature_name)
 #table(hlca@assays$RNA@meta.features$feature_is_filtered)
-table(hlca@meta.data$cell_type_ontology_term_id)
-table(hlca@meta.data$cell_type)
-table(hlca@meta.data$ann_finest_level)
+#table(hlca@meta.data$cell_type_ontology_term_id)
+#table(hlca@meta.data$cell_type)
+#table(hlca@meta.data$ann_finest_level)
 
 summary(cellRef@assays$RNA@meta.features$feature_type)
 #head(cellRef@assays$RNA@meta.features$feature_name)  ## lncRNA use Ensemble ID
 #head(cellRef@assays$RNA@meta.features$origSymbol)    ## lncRNA use symbol
 #table(cellRef@assays$RNA@meta.features$feature_is_filtered)
-table(cellRef@meta.data$cell_type_ontology_term_id)
-table(cellRef@meta.data$putative_CL_label)
-table(cellRef@meta.data$celltype_level3_fullname)
+#table(cellRef@meta.data$cell_type_ontology_term_id)
+#table(cellRef@meta.data$putative_CL_label)
+#table(cellRef@meta.data$celltype_level3_fullname)
+
+"AGER" %in% cellRef$RNA@meta.features$origSymbol
+"RTKN2" %in% cellRef$RNA@meta.features$origSymbol
+
+"ENSG00000204305" %in% cellRef$RNA@data@Dimnames[[1]]  
+"ENSG00000182010" %in% cellRef$RNA@data@Dimnames[[1]]  
+head(cellRef$RNA@data@Dimnames[[1]] )
 
 ```
 
@@ -82,52 +119,11 @@ IncRNA ensembl ID may not be stable
 e.g. ENSG00000238009 
 Ensembl gene ENSG00000238009 is no longer in the database.It has been mapped to 1 current identifier  ENSG00000241860.
 
-
-## 4 QC 
-
-### 4.1 plot
-
-```{r,warning=FALSE,message=FALSE}
-## plot
-
-jpeg(file="HLCA_nFeature.jpeg")
-VlnPlot(hlca, features = c("nFeaturess_RNA_detected"))   #,raster=FALSE)
-dev.off()
-
-jpeg(file="cellRef_nFeature.jpeg")
-VlnPlot(cellRef, features = c("nFeature_RNA", "nCount_RNA"), ncol = 2)
-dev.off()
-
-
-```
-
-### 4.2 Remove low quality cells
-
-```{r,echo=TRUE,warning=FALSE,message=FALSE}
-## filter
-## need to convert to gene symbol to filter percent.mt < 5
-## pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^MT-")
-
-hlca_filtered <- subset(hlca, subset = nFeaturess_RNA_detected > 200 & nFeaturess_RNA_detected < 2500)
-cellRef_filtered <- subset(cellRef,subset = nFeature_RNA > 200 & nFeature_RNA < 2500)
-
-## prior and after filter
-hlca@assays$RNA@counts@Dim
-hlca_filtered@assays$RNA@counts@Dim
-
-cellRef$RNA@counts@Dim
-cellRef_filtered@assays$RNA@counts@Dim
-```
-
-
-Notes:
-
-
 HLCA and cellRef are combined datasets, Likely, they should not be filtered using nFeature.
 High percentage cells will be filtered if using "nFeature_RNA > 200 & nFeature_RNA < 2500". 
 
 
-## 5. Calculate rate,three state probabilities,and barcode
+## 4. Calculate rate,three state probabilities,and barcode
 
 Functions from the 2022 Biostatistics paper
 
@@ -184,9 +180,9 @@ getBarcode<-function(d.list) {
 ```
 
 
-## 6. Output expressed gene lists and barcode dataframes for cell type
+## 5. Output expressed gene lists and barcode dataframes for cell type
 
-Function to un individual or a list of cell types
+Function to an individual or a list of cell types
 
 ```{r, message=FALSE}
 
@@ -234,6 +230,25 @@ runBatch<-function(seurat_dataset,dataset_name,cell_type_list,cut_off_list){
 
 ```
 
+## 6.Check cell tpe-specific gene expression probability (ExpProb)
+
+```{r, message=FALSE}
+
+# output the expression probability for a gene in a specific cell type
+checkGene <- function(id,sym, barcode_dic, marker, data_name){
+  df_cell_type_gene<-data.frame(matrix(vector(), 0, 6,
+                dimnames=list(c(), c("id", "sym", "barcode","marker", "cellType", "data"))),
+                stringsAsFactors=F)
+  for(i in 1:length(barcode_dic)){
+    barcode<-barcode_dic[[i]][id,]
+    df = data.frame(id=id,sym=sym, barcode=barcode, marker=marker,cellType=names(barcode_dic)[i], data=data_name)
+    df_cell_type_gene <- rbind(df_cell_type_gene, df)
+  }
+  return(df_cell_type_gene)
+}
+
+```
+
 ## 7. Validate the expression probabilities using know expressed genes e.g NS-forest markers
 
 
@@ -249,40 +264,38 @@ ACP5 ENSG00000102575
 AOC3 ENSG00000131471 
 LUM ENSG00000139329
 SCN7A ENSG00000136546
-ITGA8 ENSG00000077943 
+ITGA8 ENSG00000077943
 
-```{r, message=FALSE,warning=FALSE}
+HIGD1B: ENSG00000131097, 
+KCNK3:ENSG00000171303
+
+id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943","ENSG00000131097","ENSG00000171303" )
+
+```{r, message=FALSE,warning=FALSE, results='hide'}
 
 ## cell type name
 #unique(cellRef$celltype_level3_fullname)
 #unique(hlca$ann_finest_level)
 
 
+# Mesothelium'['CALB2',ENSG00000172137 'PRG4',ENSG00000116690]	['CALB2', 'UPK3B' ENSG00000243566]
+# AT1 ['AGER'ENSG00000204305]	['RTKN2',ENSG00000182010]
+id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943","ENSG00000131097","ENSG00000171303","ENSG00000172137","ENSG00000116690","ENSG00000243566","ENSG00000204305","ENSG00000182010")
+
 ## markers
-marker<-c('Alveolar macrophage_HLCA_marker', 'Alveolar macrophage_HLCA_marker','Alveolar macrophage_cellRef_marker', 'Alveolar macrophage_cellRef_marker','Alveolar fibroblast 2_HLCA_marker', 'Alveolar fibroblast 2_HLCA_marker','Alveolar fibroblast 2_cellRef_marker', 'Alveolar fibroblast 2_cellRef_marker')
-sym<-c('MSR1', 'FABP4','MCEMP1', 'ACP5','AOC3', 'LUM','SCN7A', 'ITGA8')
-id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943")
+marker<-c('Alveolar macrophage_HLCA_marker', 'Alveolar macrophage_HLCA_marker','Alveolar macrophage_cellRef_marker', 'Alveolar macrophage_cellRef_marker','Alveolar fibroblast 2_HLCA_marker', 'Alveolar fibroblast 2_HLCA_marker','Alveolar fibroblast 2_cellRef_marker', 'Alveolar fibroblast 2_cellRef_marker','Pericyte_marker', 'Pericyte_marker', 'Mesothelium_marker', 'Mesothelium_HLCA_marker', 'Mesothelial cell_cellRef_marker', 'AT1_HLCA_marker','Alveolar type 1 cell_cellRef_marker')
+sym<-c('MSR1', 'FABP4','MCEMP1', 'ACP5','AOC3', 'LUM', 'SCN7A', 'ITGA8', 'HIGD1B', 'KCNK3', 'CALB2', 'PRG4', 'UPK3B' ,'AGER','RTKN2')
+id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943","ENSG00000131097","ENSG00000171303","ENSG00000172137","ENSG00000116690", "ENSG00000243566","ENSG00000204305","ENSG00000182010")
 
 
-## run 2 cell-type in HLCA
+## run 5 cell-type in HLCA
 seurat_dataset<-hlca
 dataset_name <-"hlca"
-cell_type_list <- c("Alveolar macrophages","Alveolar fibroblasts", "AT1")
+cell_type_list <- c("Alveolar macrophages","Alveolar fibroblasts", "AT1", "Pericytes", "Mesothelium" )
 cut_off_list <- c(0.75,0.95)
-barcode_dic2<-runBatch(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
 data_name<-rep("hlca", length(id))
 
-checkGene <- function(id,sym, barcode_dic, marker, data_name){
-  df_cell_type_gene<-data.frame(matrix(vector(), 0, 6,
-                dimnames=list(c(), c("id", "sym", "barcode","marker", "cellType", "data"))),
-                stringsAsFactors=F)
-  for(i in 1:length(barcode_dic)){
-    barcode<-barcode_dic[[i]][id,]
-    df = data.frame(id=id,sym=sym, barcode=barcode, marker=marker,cellType=names(barcode_dic)[i], data=data_name)
-    df_cell_type_gene <- rbind(df_cell_type_gene, df)
-  }
-  return(df_cell_type_gene)
-}
+barcode_dic2<-runBatch(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
 
 df_hlca_gene<-checkGene(id,sym, barcode_dic=barcode_dic2, marker, data_name)
  
@@ -291,10 +304,10 @@ df_hlca_gene<-checkGene(id,sym, barcode_dic=barcode_dic2, marker, data_name)
 
 
 ```{r, message=FALSE,warning=FALSE, results='hide'}
- ## run 2 cell-type in cellRef
+ ## run 5 cell-type in cellRef
 seurat_dataset<- cellRef
 dataset_name <- "cellRef"
-cell_type_list <- c("Alveolar macrophage","Alveolar fibroblast 2","Alveolar type 1 cell")
+cell_type_list <- c("Alveolar macrophage","Alveolar fibroblast 2","Alveolar type 1 cell","Pericyte", "Mesothelial cell")
 cut_off_list <- c(0.75,0.95)
 barcode_dic1<-runBatch(cellRef,dataset_name,cell_type_list,cut_off_list)
 
@@ -349,13 +362,36 @@ write.table(go_df, 'AT1_075_go_term.tsv', sep = "\t",row.names = FALSE,col.names
 
 GO:0003016
 reactive oxygen species metabolic process	109	28	15.72	1.78	+	2.26E-03	3.57E-02
+GO:0003016 is not a right go term for AT1 cells
+
 GO:0015671
 oxygen transport	14	1	2.02	.50	-	7.08E-01	1.00E00
+GO:0015671 is not detected using our methods.
+
 GO:0015670
 carbon dioxide transport	14	3	2.02	1.49	+	4.41E-01	1.00E00
+AQP6,no expression
+AQP1, no expression in AT1, but high expression in several EC capillary
+AQP5, no expression in AT1, but high expression in SMG
+HBE1, no expression in AT1
+HBG1, no expression in AT1
+HBB, no expression in AT1
+HBZ,no expression in AT1
+HBA2,no expression in AT1
+RHBG,no expression in AT1
+HBD,no expression in AT1
+CA2,no expression in AT1
+RHAG,no expression in AT1
+RHCG,no expression in AT1
+HBG2,no expression in AT1
+GO:0015670 is not detected using our methods.Most of genes has no or low expression in AT1 based on cellxgene raw data
+
+GO:0060509: type I pneumocyte differentiation, is not detected using our methods.
 
 
-## 9. More Validation
+## 9. Overlapping gene list between cell types
+
+Gadsden Index 
 
 ### Compare results of the same cell types from different datasets e.g. cellRef vs. Hlca
 
@@ -364,8 +400,17 @@ carbon dioxide transport	14	3	2.02	1.49	+	4.41E-01	1.00E00
 
 geneList_cellRef_Alveolar_fibroblast <- read.csv("Alveolar fibroblast 20.75.tsv")
 geneList_hlca_Alveolar_fibroblast <- read.csv("Alveolar fibroblasts0.75.tsv")
+geneList_cellRef_Pericytes <- read.csv("Pericytes0.75.tsv")
+geneList_hlca_Pericytes <- read.csv("Pericyte0.75.tsv")
 venn(list(cellRef_Alveolar_fibroblast=geneList_cellRef_Alveolar_fibroblast,hlca_Alveolar_fibroblast=geneList_hlca_Alveolar_fibroblast))
+venn(list(cellRef_Pericytes=geneList_cellRef_Pericytes,hlca_Pericytes=geneList_hlca_Pericytes))
 
+#Between cellRef Alveolar_fibroblast and hlca Alveolar_marcrophages
+Gadsden_Index<- 2652/sqrt((2652+489)*(2652+404))
+Gadsden_Index
+#Between cellRef pericyte and hlca Pericyte
+Gadsden_Index<- 2831/sqrt((2831+306)*(2831+129))
+Gadsden_Index
 ```
 
 ### Compare results from different cell types. e.g. mucus_secreting cell vs. ionocyte.
@@ -374,12 +419,24 @@ venn(list(cellRef_Alveolar_fibroblast=geneList_cellRef_Alveolar_fibroblast,hlca_
 geneList_cellRef_Alveolar_fibroblast <- read.csv("Alveolar fibroblast 20.75.tsv")
 geneList_cellRef_Alveolar_macrophages <- read.csv("Alveolar macrophages0.75.tsv")
 geneList_cellRef_type1 <- read.csv("Alveolar type 1 cell0.75.tsv")
+geneList_cellRef_Pericytes <- read.csv("Pericytes0.75.tsv")
+geneList_cellRef_Mesothelial_cell <- read.csv("Mesothelial cell0.75.tsv")
 venn(list(cellRef_Alveolar_fibroblast=geneList_cellRef_Alveolar_fibroblast,cellRef_Alveolar_macrophages=geneList_cellRef_Alveolar_macrophages))
+venn(list(cellRef_Alveolar_fibroblast=geneList_cellRef_Alveolar_fibroblast,cellRef_Pericytes=geneList_cellRef_Pericytes))
+venn(list(cellRef_Alveolar_fibroblast=geneList_cellRef_Alveolar_fibroblast,cellRef_Alveolar_type1=geneList_cellRef_type1))
+venn(list(cellRef_Alveolar_fibroblast=geneList_cellRef_Alveolar_fibroblast,cellRef_Mesothelial_cell=geneList_cellRef_Mesothelial_cell))
 
+#Between cellRef Alveolar_fibroblast and Alveolar_marcrophages
+Gadsden_Index<- 2060/sqrt((2060+1081)*(2060+483))
+Gadsden_Index
+#Between cellRef Alveolar_fibroblast and Mesothelial_cell
+Gadsden_Index<- 2670/sqrt((2670+471)*(2670+385))
+Gadsden_Index
 ```
 
-Generate DE gene list and compared with transitional DE list.
+## 10 more validation
 
+Generate DE gene list and compared with transitional DE list.
 
 
 Subsampling, Bootstrap Aggregation,Perturbation ( add 10% cells from other cell type)
