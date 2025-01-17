@@ -30,6 +30,7 @@ library(clusterProfiler)
 library(AnnotationDbi)
 # package for Venn diagram
 library(gplots, lib.loc = "/usr/local/apps/R/4.4/site-library_4.4.2")
+library(tidyverse)
 
 # Get gene-specific distributions
 # Publication:https://academic.oup.com/biostatistics/article/23/4/1150/6622011
@@ -86,9 +87,22 @@ marker_gene$symbol = gsub(" ","",marker_gene$symbol)
 bi_gene<-read.csv("./data/bianryGene_lung.tsv", sep = '\t') 
 bi_gene$symbol = gsub(" ","",bi_gene$symbol)
 
+# load NS-forest marker gene and binary marker gene
+list.files("./data/")
+binary_gene<-read.csv("./data/hlcacore_ann_finest_label_all_supplementary.csv", sep=",")
+NSmarker_gene<-read.csv("./data/hlcacore_ann_finest_level.markers.csv", sep = ',')
+
+NSmarker_gene$NSForest_markers[1]
+NSmarker_gene$NSForest_markers <-gsub("]", "",NSmarker_gene$NSForest_markers)
+NSmarker_gene$NSForest_markers <-gsub("\\[","",NSmarker_gene$NSForest_markers)
+NSmarker_gene$NSForest_markers <-gsub(" ","",NSmarker_gene$NSForest_markers)
+NSmarker_gene$NSForest_markers <-gsub("'","",NSmarker_gene$NSForest_markers)
+NSmarker_gene <- NSmarker_gene %>%
+  separate_rows(NSForest_markers, sep = ",")
+
 # merge
-geneList<-merge(marker_gene,gene_Ensemble, by.x = "symbol", by.y = "gene_name", all.x = TRUE) 
-geneList_bi<-merge(bi_gene,gene_Ensemble, by.x = "symbol", by.y = "gene_name", all.x = TRUE) 
+NSmarker<-merge(NSmarker_gene,gene_Ensemble, by.x = "NSForest_markers", by.y = "gene_name", all.x = TRUE) 
+geneList_bi<-merge(binary_gene,gene_Ensemble, by.x = "binary_genes", by.y = "gene_name", all.x = TRUE) 
 
 #gencode[gencode$gene_name == "C1orf194",] ## 4 NS-forest marker don't have EnsemblID
 
@@ -97,20 +111,23 @@ pi_df<-as.data.frame(pi.all.g)
 pi_df$`ENSEMBLID`<-rownames(pi_df)
 
 # Prior probability of expression for the NS-forest marker genes 
-prior_marker<-merge(geneList, pi_df, by = "ENSEMBLID", all.x = TRUE) 
+prior_marker<-merge(NSmarker, pi_df, by = "ENSEMBLID", all.x = TRUE) 
 prior_marker$prior_prob_off <- prior_marker$V1 + prior_marker$V2
 prior_marker$prior_prob_on <- 1-(prior_marker$V1 + prior_marker$V2)
+print(colnames(prior_marker) )
+
+prior_marker<-prior_marker %>% select(c("ENSEMBLID","NSForest_markers", "clusterName","clusterSize","f_score","marker_count","binary_genes","V1","V2","prior_prob_off","prior_prob_on"))
 
 hist(as.numeric(prior_marker$prior_prob_on),main = "", xlab = "Prior probability of expression for the marker genes")
 
 
 
 # Prior probability of expression for the NS-forest binary genes 
-prior_bi<-merge(geneList_bi, pi_df, by = "ENSEMBLID", all.x = TRUE) 
-prior_bi$prior_prob_off <- prior_bi$V1 + prior_bi$V2
-prior_bi$prior_prob_on <- 1-(prior_bi$V1 + prior_bi$V2)
+prior_binary<-merge(geneList_bi, pi_df, by = "ENSEMBLID", all.x = TRUE) 
+prior_binary$prior_prob_off <- prior_binary$V1 + prior_binary$V2
+prior_binary$prior_prob_on <- 1-(prior_binary$V1 + prior_binary$V2)
 
-hist(as.numeric(prior_bi$prior_prob_on),main = "", xlab = "Prior probability of expression of the Binary genes")
+hist(as.numeric(prior_binary$prior_prob_on),main = "", xlab = "Prior probability of expression of the Binary genes")
 
 
 
@@ -258,24 +275,6 @@ checkGene <- function(id,sym, barcode_dic, marker, data_name){
 ## 7. Validate the expression probabilities using know expressed genes e.g NS-forest markers
 
 
-                     HLCA_NSForestMarkers	CellRef_NSForestMarkers
-Alveolar macrophages ['MSR1', 'FABP4']	['MCEMP1', 'ACP5']
-Alveolar Fibroblasts ['AOC3', 'LUM']	['SCN7A', 'ITGA8']
-
-MSR1 ENSG00000038945 
-FABP4 ENSG00000170323 
-MCEMP1 ENSG00000183019
-ACP5 ENSG00000102575
-
-AOC3 ENSG00000131471 
-LUM ENSG00000139329
-SCN7A ENSG00000136546
-ITGA8 ENSG00000077943
-
-HIGD1B: ENSG00000131097, 
-KCNK3:ENSG00000171303
-
-id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943","ENSG00000131097","ENSG00000171303" )
 
 ```{r, message=FALSE,warning=FALSE, results='hide'}
 
@@ -294,11 +293,16 @@ cut_off_list <- c(0.75,0.95)
 
 barcode_dic2<-runBatch(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
 
+prior_marker <- prior_marker[!is.na(prior_marker$ENSEMBLID), ]
+
 data_name<-rep("hlca", nrow(prior_marker))
-prior_marker$marker <-paste(prior_marker$cluster,prior_marker$dataset,sep="_")
-df_hlca_gene<-checkGene(prior_marker$ENSEMBLID,prior_marker$symbol, barcode_dic=barcode_dic2, prior_marker$marker, data_name)
-df_hlca_gene<-df_hlca_gene %>% mutate ()
- 
+
+df_hlca_gene<-checkGene(prior_marker$ENSEMBLID,prior_marker$NSForest_markers, barcode_dic=barcode_dic2, prior_marker$clusterName, data_name)
+
+df_hlca_post<-merge(df_hlca_gene,prior_marker,  by.x = "id", by.y = "ENSEMBLID", all.x = TRUE)
+df_hlca_post<-df_hlca_post %>% mutate(target=ifelse(df_hlca_post$`clusterName` == df_hlca_post$`cellType`, TRUE, FALSE))
+write.table(df_hlca_post, 'hlca_prior_post_ExpProb.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+
 ```
 
 
