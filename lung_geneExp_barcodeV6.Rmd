@@ -32,7 +32,7 @@ library(AnnotationDbi)
 library(gplots, lib.loc = "/usr/local/apps/R/4.4/site-library_4.4.2")
 library(tidyverse)
 
-install.packages("ggplot2")  
+#install.packages("ggplot2")  
 library(ggplot2)
 
 
@@ -87,11 +87,6 @@ summary(cellRef@assays$RNA@meta.features$feature_type)
 gencode<-read.csv("./data/gencode.v47.annotation.csv")
 gene_Ensemble <-gencode %>% select(c(`gene_name`, "ENSEMBLID"))
 
-# load NS-forest marker gene and binary marker gene
-marker_gene<-read.csv("./data/marker_lung.tsv", sep = '\t')
-marker_gene$symbol = gsub(" ","",marker_gene$symbol)
-bi_gene<-read.csv("./data/bianryGene_lung.tsv", sep = '\t') 
-bi_gene$symbol = gsub(" ","",bi_gene$symbol)
 
 # load NS-forest marker gene and binary marker gene
 list.files("./data/")
@@ -106,33 +101,33 @@ NSmarker_gene$NSForest_markers <-gsub("'","",NSmarker_gene$NSForest_markers)
 NSmarker_gene <- NSmarker_gene %>%
   separate_rows(NSForest_markers, sep = ",")
 
-# merge
+# merge to obtain ENsembleID
 NSmarker<-merge(NSmarker_gene,gene_Ensemble, by.x = "NSForest_markers", by.y = "gene_name", all.x = TRUE) 
 geneList_bi<-merge(binary_gene,gene_Ensemble, by.x = "binary_genes", by.y = "gene_name", all.x = TRUE) 
-
 #gencode[gencode$gene_name == "C1orf194",] ## 4 NS-forest marker don't have EnsemblID
 
 # π-null,π-off, probability of null and off state. 
 pi_df<-as.data.frame(pi.all.g)
 pi_df$`ENSEMBLID`<-rownames(pi_df)
 
-# Prior probability of expression for the NS-forest marker genes 
+# merge to obtain Prior probability of expression for the NS-forest marker genes 
 prior_marker<-merge(NSmarker, pi_df, by = "ENSEMBLID", all.x = TRUE) 
 prior_marker$prior_prob_off <- prior_marker$V1 + prior_marker$V2
 prior_marker$prior_prob_on <- 1-(prior_marker$V1 + prior_marker$V2)
 print(colnames(prior_marker) )
 
+# finla dataframe of NS-forested markers with features
 prior_marker<-prior_marker %>% select(c("ENSEMBLID","NSForest_markers", "clusterName","clusterSize","f_score","marker_count","binary_genes","V1","V2","prior_prob_off","prior_prob_on"))
 
 hist(as.numeric(prior_marker$prior_prob_on),main = "", xlab = "Prior probability of expression for the marker genes")
 
 
 
-# Prior probability of expression for the NS-forest binary genes 
+# merge to obtain Prior probability of expression for the NS-forest binary genes 
 prior_binary<-merge(geneList_bi, pi_df, by = "ENSEMBLID", all.x = TRUE) 
 prior_binary$prior_prob_off <- prior_binary$V1 + prior_binary$V2
 prior_binary$prior_prob_on <- 1-(prior_binary$V1 + prior_binary$V2)
-
+colnames(prior_binary)
 hist(as.numeric(prior_binary$prior_prob_on),main = "", xlab = "Prior probability of expression of the Binary genes")
 
 
@@ -209,7 +204,7 @@ getBarcode<-function(d.list) {
 ```
 
 
-## 5. Output expressed gene lists and barcode dataframes for cell type
+## 5. Output expressed gene lists and Expression probability dataframes for cell type
 
 Function to an individual or a list of cell types
 
@@ -259,7 +254,7 @@ runBatch<-function(seurat_dataset,dataset_name,cell_type_list,cut_off_list){
 
 ```
 
-## 6.Check cell tpe-specific gene expression probability (ExpProb)
+## 6.Check cell type-specific gene expression probability (ExpProb)
 
 ```{r, message=FALSE}
 
@@ -278,7 +273,7 @@ checkGene <- function(id,sym, barcode_dic, marker, data_name){
 
 ```
 
-## 7. Validate the expression probabilities using know expressed genes e.g NS-forest markers
+## 7. Validate the expression probabilities using know expressed genes e.g NS-forest markers, binary genes
 
 
 
@@ -289,8 +284,6 @@ checkGene <- function(id,sym, barcode_dic, marker, data_name){
 #unique(hlca$ann_finest_level)
 
 
-
-
 ## run all cell-type in HLCA
 seurat_dataset<-hlca
 dataset_name <-"hlca"
@@ -299,7 +292,7 @@ cut_off_list <- c(0.75,0.95)
 
 barcode_dic2<-runBatch(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
 
-# maker prior and posst probability
+# combine  prior and post probability for NS-forest marker
 prior_marker <- prior_marker[!is.na(prior_marker$ENSEMBLID), ]
 data_name<-rep("hlca", nrow(prior_marker))
 
@@ -307,22 +300,29 @@ df_hlca_gene<-checkGene(prior_marker$ENSEMBLID,prior_marker$NSForest_markers, ba
 
 df_hlca_post<-merge(df_hlca_gene,prior_marker,  by.x = "id", by.y = "ENSEMBLID", all.x = TRUE)
 df_hlca_post<-df_hlca_post %>% mutate(target=ifelse(df_hlca_post$`clusterName` == df_hlca_post$`cellType`, TRUE, FALSE))
-write.table(df_hlca_post, 'hlca_prior_post_ExpProb.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
 
-colnames(df_hlca_post)
+marker_hlca_prior_post <-df_hlca_post%>%  select(c("NSForest_markers","id","marker","clusterSize","f_score", "marker_count","data","cellType","V1","V2","prior_prob_off","prior_prob_on", "barcode","target"))
+colnames(marker_hlca_prior_post)<-c("NSForest_markers","ENSEMBLId","TargetCellType","clusterSize","f_score", "marker_count","data","dataCellSet","pi_null","pi_off","prior_prob_off","prior_prob_on", "expProb","targeted")
+write.table(marker_hlca_prior_post, 'marker_hlca_prior_post.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+
 
 ### correlation
-ggplot(df_hlca_post, aes(x = prior_prob_on, y = barcode)) + 
+marker_hlca_prior_post_clean<-na.omit(marker_hlca_prior_post)
+target_marker<-marker_hlca_prior_post_clean[marker_hlca_prior_post_clean$targeted==TRUE,]
+
+ggplot(target_marker, aes(x = clusterSize, y = expProb)) + 
   geom_point(color = "blue", size = 2) +   # Scatterplot points
   geom_smooth(method = "lm", color = "red", se = TRUE) +  # Linear regression line
   labs(title = "Scatterplot with Correlation Line",
-       x = "f_score", 
+       x = "clusterSize", 
        y = "ExpProb") +
   theme_minimal()
 
-cor(as.numeric(df_hlca_post$`clusterSize`), as.numeric(df_hlca_post$`barcode`),use = "complete.obs")
-cor(as.numeric(df_hlca_post$`f_score`), as.numeric(df_hlca_post$`barcode`),use = "complete.obs")
-cor(as.numeric(df_hlca_post$`prior_prob_on`), as.numeric(df_hlca_post$`barcode`), use = "complete.obs")
+cor(as.numeric(target_marker$`clusterSize`), as.numeric(target_marker$`expProb`),use = "complete.obs")
+cor(as.numeric(target_marker$`f_score`), as.numeric(target_marker$`expProb`),use = "complete.obs")
+cor(as.numeric(target_marker$`prior_prob_on`), as.numeric(target_marker$`expProb`), use = "complete.obs")
+```
+
 ## binary gene
 
 ```{r, message=FALSE,warning=FALSE, results='hide'}
@@ -331,24 +331,29 @@ data_name<-rep("hlca", nrow(prior_binary))
 
 df_hlca_bi<-checkGene(prior_binary$ENSEMBLID,prior_binary$binary_genes, barcode_dic=barcode_dic2, prior_binary$clusterName, data_name)
 
-bi_hlca_prior_post<-merge(df_hlca_bi,prior_binary,  by.x = "id", by.y = "ENSEMBLID", all.x = TRUE)
-bi_hlca_prior_post<-bi_hlca_prior_post %>% mutate(target=ifelse(bi_hlca_prior_post$clusterName == bi_hlca_prior_post$cellType, TRUE, FALSE))
-write.table(bi_hlca_prior_post, 'bianry_hlca_prior_post_ExpProb.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+bi_hlca_prior_post<-merge(df_hlca_bi,prior_binary,  by.x = "id", by.y = "ENSEMBLID")
+bi_hlca_prior_post<-bi_hlca_prior_post %>% mutate(target=ifelse((bi_hlca_prior_post$marker == bi_hlca_prior_post$cellType & bi_hlca_prior_post$marker == bi_hlca_prior_post$clusterName), TRUE, FALSE))
 
-colnames(bi_hlca_prior_post)
+binary_hlca_prior_post <-bi_hlca_prior_post%>%  select(c("binary_genes","id","marker","clusterName","rf_feature_importance", "cluster_median","binary_score","data","cellType","V1","V2","prior_prob_off","prior_prob_on", "barcode","target"))
+colnames(binary_hlca_prior_post)<-c("binary_genes","ENSEMBLId","TargetCellType","clusterName","rf_feature_importance", "cluster_median","binary_score","data","dataCellSet","pi_null","pi_off","prior_prob_off","prior_prob_on", "expProb","targeted")
+
+write.table(binary_hlca_prior_post, 'bianry_hlca_prior_post_ExpProb.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+
+target_binary<-binary_hlca_prior_post[binary_hlca_prior_post$targeted==TRUE,]
 
 ### correlation
-ggplot(df_hlca_post, aes(x = prior_prob_on, y = barcode)) + 
+ggplot(target_binary, aes(x = binary_score, y = expProb)) + 
   geom_point(color = "blue", size = 2) +   # Scatterplot points
   geom_smooth(method = "lm", color = "red", se = TRUE) +  # Linear regression line
   labs(title = "Scatterplot with Correlation Line",
-       x = "f_score", 
+       x = "binary_score", 
        y = "ExpProb") +
   theme_minimal()
 
-cor(as.numeric(df_hlca_post$`clusterSize`), as.numeric(df_hlca_post$`barcode`),use = "complete.obs")
-cor(as.numeric(df_hlca_post$`f_score`), as.numeric(df_hlca_post$`barcode`),use = "complete.obs")
-cor(as.numeric(df_hlca_post$`prior_prob_on`), as.numeric(df_hlca_post$`barcode`), use = "complete.obs")
+cor(as.numeric(target_binary$`binary_score`), as.numeric(target_binary$`expProb`),use = "complete.obs")
+cor(as.numeric(target_binary$`rf_feature_importance`), as.numeric(target_binary$`expProb`),use = "complete.obs")
+cor(as.numeric(target_binary$`cluster_median`), as.numeric(target_binary$`expProb`), use = "complete.obs")
+cor(as.numeric(target_binary$`prior_prob_on`), as.numeric(target_binary$`expProb`), use = "complete.obs")
 ```
 
 ```{r, message=FALSE,warning=FALSE, results='hide'}

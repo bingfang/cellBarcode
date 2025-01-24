@@ -509,7 +509,19 @@ summary(cellRef@assays$RNA@meta.features$feature_type)</code></pre>
 #table(cellRef@assays$RNA@meta.features$feature_is_filtered)
 #table(cellRef@meta.data$cell_type_ontology_term_id)
 #table(cellRef@meta.data$putative_CL_label)
-#table(cellRef@meta.data$celltype_level3_fullname)</code></pre>
+#table(cellRef@meta.data$celltype_level3_fullname)
+
+&quot;AGER&quot; %in% cellRef$RNA@meta.features$origSymbol</code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<pre class="r"><code>&quot;RTKN2&quot; %in% cellRef$RNA@meta.features$origSymbol</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>&quot;ENSG00000204305&quot; %in% cellRef$RNA@data@Dimnames[[1]]  </code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<pre class="r"><code>&quot;ENSG00000182010&quot; %in% cellRef$RNA@data@Dimnames[[1]]  </code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>head(cellRef$RNA@data@Dimnames[[1]] )</code></pre>
+<pre><code>## [1] &quot;ENSG00000243485&quot; &quot;ENSG00000237613&quot; &quot;ENSG00000186092&quot; &quot;ENSG00000238009&quot;
+## [5] &quot;ENSG00000239945&quot; &quot;ENSG00000239906&quot;</code></pre>
 <p>Notes: cellRef authors provided 47 cell ontology terms, which match
 to their 48 celltype_level3 clusters. They also provided putative cell
 ontology names.</p>
@@ -574,9 +586,9 @@ getBarcode&lt;-function(d.list) {
 }</code></pre>
 </div>
 <div id="output-expressed-gene-lists-and-barcode-dataframes-for-cell-type" class="section level2">
-<h2>6. Output expressed gene lists and barcode dataframes for cell
+<h2>5. Output expressed gene lists and barcode dataframes for cell
 type</h2>
-<p>Function to un individual or a list of cell types</p>
+<p>Function to an individual or a list of cell types</p>
 <pre class="r"><code>## for cellRef, meta_feature is &quot;celltype_level3_fullname&quot;
 ## for hlca, meta_feature is &quot;ann_finest_level&quot;
 ## Run individual cell type.
@@ -617,9 +629,11 @@ runBatch&lt;-function(seurat_dataset,dataset_name,cell_type_list,cut_off_list){
     }
   }
   return(dic)
-}
-
-## Check gne expression probability
+}</code></pre>
+</div>
+<div id="check-cell-tpe-specific-gene-expression-probability-expprob" class="section level2">
+<h2>6.Check cell tpe-specific gene expression probability (ExpProb)</h2>
+<pre class="r"><code># output the expression probability for a gene in a specific cell type
 checkGene &lt;- function(id,sym, barcode_dic, marker, data_name){
   df_cell_type_gene&lt;-data.frame(matrix(vector(), 0, 6,
                 dimnames=list(c(), c(&quot;id&quot;, &quot;sym&quot;, &quot;barcode&quot;,&quot;marker&quot;, &quot;cellType&quot;, &quot;data&quot;))),
@@ -660,9 +674,6 @@ marker&lt;-c(&#39;Alveolar macrophage_HLCA_marker&#39;, &#39;Alveolar macrophage
 sym&lt;-c(&#39;MSR1&#39;, &#39;FABP4&#39;,&#39;MCEMP1&#39;, &#39;ACP5&#39;,&#39;AOC3&#39;, &#39;LUM&#39;, &#39;SCN7A&#39;, &#39;ITGA8&#39;, &#39;HIGD1B&#39;, &#39;KCNK3&#39;, &#39;CALB2&#39;, &#39;PRG4&#39;, &#39;UPK3B&#39; ,&#39;AGER&#39;,&#39;RTKN2&#39;)
 id &lt;- c(&quot;ENSG00000038945&quot;,&quot;ENSG00000170323&quot;, &quot;ENSG00000183019&quot;,&quot;ENSG00000102575&quot;,&quot;ENSG00000131471&quot;,&quot;ENSG00000139329&quot;,&quot;ENSG00000136546&quot;,&quot;ENSG00000077943&quot;,&quot;ENSG00000131097&quot;,&quot;ENSG00000171303&quot;,&quot;ENSG00000172137&quot;,&quot;ENSG00000116690&quot;, &quot;ENSG00000243566&quot;,&quot;ENSG00000204305&quot;,&quot;ENSG00000182010&quot;)
 
-length(id)
-length(sym)
-length(marker)
 
 ## run 5 cell-type in HLCA
 seurat_dataset&lt;-hlca
@@ -674,7 +685,7 @@ data_name&lt;-rep(&quot;hlca&quot;, length(id))
 barcode_dic2&lt;-runBatch(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
 
 df_hlca_gene&lt;-checkGene(id,sym, barcode_dic=barcode_dic2, marker, data_name)</code></pre>
-<pre class="r"><code> ## run 2 cell-type in cellRef
+<pre class="r"><code> ## run 5 cell-type in cellRef
 seurat_dataset&lt;- cellRef
 dataset_name &lt;- &quot;cellRef&quot;
 cell_type_list &lt;- c(&quot;Alveolar macrophage&quot;,&quot;Alveolar fibroblast 2&quot;,&quot;Alveolar type 1 cell&quot;,&quot;Pericyte&quot;, &quot;Mesothelial cell&quot;)
@@ -723,8 +734,9 @@ genes has no or low expression in AT1 based on cellxgene raw data</p>
 <p><a href="GO:0060509" class="uri">GO:0060509</a>: type I pneumocyte
 differentiation, is not detected using our methods.</p>
 </div>
-<div id="more-validation" class="section level2">
-<h2>9. More Validation</h2>
+<div id="overlapping-gene-list-between-cell-types" class="section level2">
+<h2>9. Overlapping gene list between cell types</h2>
+<p>Gadsden Index</p>
 <div id="compare-results-of-the-same-cell-types-from-different-datasets-e.g.-cellref-vs.-hlca" class="section level3">
 <h3>Compare results of the same cell types from different datasets
 e.g. cellRef vs. Hlca</h3>
@@ -769,10 +781,13 @@ Gadsden_Index</code></pre>
 Gadsden_Index&lt;- 2670/sqrt((2670+471)*(2670+385))
 Gadsden_Index</code></pre>
 <pre><code>## [1] 0.8619294</code></pre>
+</div>
+</div>
+<div id="more-validation" class="section level2">
+<h2>10 more validation</h2>
 <p>Generate DE gene list and compared with transitional DE list.</p>
 <p>Subsampling, Bootstrap Aggregation,Perturbation ( add 10% cells from
 other cell type)</p>
-</div>
 </div>
 <div id="reporting" class="section level2">
 <h2>10. Reporting</h2>
