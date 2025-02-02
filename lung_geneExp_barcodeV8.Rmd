@@ -30,6 +30,13 @@ library(clusterProfiler)
 library(AnnotationDbi)
 # package for Venn diagram
 library(gplots, lib.loc = "/usr/local/apps/R/4.4/site-library_4.4.2")
+library(tidyverse)
+
+install.packages("ggplot2")  
+library(ggplot2)
+
+
+
 
 # Get gene-specific distributions
 # Publication:https://academic.oup.com/biostatistics/article/23/4/1150/6622011
@@ -45,34 +52,6 @@ mu.g<-c(-12.73153,-8.301349)    # global means for gene rates on a log scale, (�
 ```
 
 
-```{r}
-# MCEMP1
-sum(pi.all.g["ENSG00000183019",])
-g.on.all.g["ENSG00000183019"]
-g.off.all.g["ENSG00000183019"]
-a.all.g["ENSG00000183019"]
-sigma.all.g["ENSG00000183019",]+mu.g
-
-
-#MSR1
-sum(pi.all.g["ENSG00000038945",])
-g.on.all.g["ENSG00000038945"]
-g.off.all.g["ENSG00000038945"]
-a.all.g["ENSG00000038945"]
-sigma.all.g["ENSG00000038945",]+mu.g
-
-id <- c("ENSG00000038945","ENSG00000170323","ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943","ENSG00000131097","ENSG00000171303","ENSG00000172137","ENSG00000116690","ENSG00000243566","ENSG00000204305","ENSG00000182010")
-sym<-c('MSR1', 'FABP4','MCEMP1', 'ACP5','AOC3', 'LUM', 'SCN7A', 'ITGA8', 'HIGD1B', 'KCNK3', 'CALB2', 'PRG4', 'UPK3B' ,'AGER','RTKN2')
-for(i in 1:15){
-  cat(id[i],sym[i],"probability of null and off states")
- 
-  print(sum(pi.all.g[id[i],]))
-}
-
-```
-
-10 out of 15 marker genes are considered as always-off genes.
-
 
 ## 3. Data 
 
@@ -83,7 +62,7 @@ cellRef data from cellXgene
 ```{r, echo=TRUE,warning=FALSE,message=FALSE} 
 ## Read .rds file
 hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
-cellRef = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/443f7fb8-2a27-47c3-98f6-6a603c7a294e_cellRef.rds")
+#cellRef = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/443f7fb8-2a27-47c3-98f6-6a603c7a294e_cellRef.rds")
 
 ## Preview the dataset
 summary(hlca@assays$RNA@meta.features$feature_type)
@@ -93,38 +72,64 @@ summary(hlca@assays$RNA@meta.features$feature_type)
 #table(hlca@meta.data$cell_type)
 #table(hlca@meta.data$ann_finest_level)
 
-summary(cellRef@assays$RNA@meta.features$feature_type)
-#head(cellRef@assays$RNA@meta.features$feature_name)  ## lncRNA use Ensemble ID
-#head(cellRef@assays$RNA@meta.features$origSymbol)    ## lncRNA use symbol
-#table(cellRef@assays$RNA@meta.features$feature_is_filtered)
-#table(cellRef@meta.data$cell_type_ontology_term_id)
-#table(cellRef@meta.data$putative_CL_label)
-#table(cellRef@meta.data$celltype_level3_fullname)
 
+
+```
+
+```{r,echo=TRUE,warning=FALSE,message=FALSE} 
 # The full table of gene symbol and Ensemble ID
 gencode<-read.csv("./data/gencode.v47.annotation.csv")
 gene_Ensemble <-gencode %>% select(c(`gene_name`, "ENSEMBLID"))
+
 # load NS-forest marker gene and binary marker gene
 marker_gene<-read.csv("./data/marker_lung.tsv", sep = '\t')
 marker_gene$symbol = gsub(" ","",marker_gene$symbol)
 bi_gene<-read.csv("./data/bianryGene_lung.tsv", sep = '\t') 
+bi_gene$symbol = gsub(" ","",bi_gene$symbol)
+
+# load NS-forest marker gene and binary marker gene
+list.files("./data/")
+binary_gene<-read.csv("./data/hlcacore_ann_finest_label_all_supplementary.csv", sep=",")
+NSmarker_gene<-read.csv("./data/hlcacore_ann_finest_level.markers.csv", sep = ',')
+
+NSmarker_gene$NSForest_markers[1]
+NSmarker_gene$NSForest_markers <-gsub("]", "",NSmarker_gene$NSForest_markers)
+NSmarker_gene$NSForest_markers <-gsub("\\[","",NSmarker_gene$NSForest_markers)
+NSmarker_gene$NSForest_markers <-gsub(" ","",NSmarker_gene$NSForest_markers)
+NSmarker_gene$NSForest_markers <-gsub("'","",NSmarker_gene$NSForest_markers)
+NSmarker_gene <- NSmarker_gene %>%
+  separate_rows(NSForest_markers, sep = ",")
 
 # merge
-geneList<-merge(marker_gene,gene_Ensemble, by.x = "symbol", by.y = "gene_name", all.x = TRUE) 
+NSmarker<-merge(NSmarker_gene,gene_Ensemble, by.x = "NSForest_markers", by.y = "gene_name", all.x = TRUE) 
+geneList_bi<-merge(binary_gene,gene_Ensemble, by.x = "binary_genes", by.y = "gene_name", all.x = TRUE) 
+
+#gencode[gencode$gene_name == "C1orf194",] ## 4 NS-forest marker don't have EnsemblID
+
+# π-null,π-off, probability of null and off state. 
+pi_df<-as.data.frame(pi.all.g)
+pi_df$`ENSEMBLID`<-rownames(pi_df)
+
+# Prior probability of expression for the NS-forest marker genes 
+prior_marker<-merge(NSmarker, pi_df, by = "ENSEMBLID", all.x = TRUE) 
+prior_marker$prior_prob_off <- prior_marker$V1 + prior_marker$V2
+prior_marker$prior_prob_on <- 1-(prior_marker$V1 + prior_marker$V2)
+print(colnames(prior_marker) )
+
+prior_marker<-prior_marker %>% select(c("ENSEMBLID","NSForest_markers", "clusterName","clusterSize","f_score","marker_count","binary_genes","V1","V2","prior_prob_off","prior_prob_on"))
+
+hist(as.numeric(prior_marker$prior_prob_on),main = "", xlab = "Prior probability of expression for the marker genes")
 
 
-gencode[gencode$gene_name == "ACP5",]
+
+# Prior probability of expression for the NS-forest binary genes 
+prior_binary<-merge(geneList_bi, pi_df, by = "ENSEMBLID", all.x = TRUE) 
+prior_binary$prior_prob_off <- prior_binary$V1 + prior_binary$V2
+prior_binary$prior_prob_on <- 1-(prior_binary$V1 + prior_binary$V2)
+
+hist(as.numeric(prior_binary$prior_prob_on),main = "", xlab = "Prior probability of expression of the Binary genes")
 
 
-
-
-
-"AGER" %in% cellRef$RNA@meta.features$origSymbol
-"RTKN2" %in% cellRef$RNA@meta.features$origSymbol
-
-"ENSG00000204305" %in% cellRef$RNA@data@Dimnames[[1]]  
-"ENSG00000182010" %in% cellRef$RNA@data@Dimnames[[1]]  
-head(cellRef$RNA@data@Dimnames[[1]] )
 
 ```
 
@@ -195,6 +200,15 @@ getBarcode<-function(d.list) {
   rownames(barcode) <- rownames(d.list[[1]])
   return(barcode)
 }
+
+# get probability of on and off state
+getBarcode2 <- function(d.list) {
+  barcode <- sapply(d.list,function(x) 1-x[,2])
+  barcode[barcode<0] <- 0
+  colnames(barcode) <- names(d.list)
+  rownames(barcode) <- rownames(d.list[[1]])
+  return(barcode)
+}
 ```
 
 
@@ -222,7 +236,7 @@ generateCellType_barcode <- function(seurat_dataset,dataset_name, cellType, cut_
   data.d <- trainAllReference(matrix,labels,discrim_only=FALSE)
 
   # get barcode and gene list
-  barcodes <- getBarcode(data.d)
+  barcodes <- getBarcode2(data.d)
   geneList <-rownames(barcodes)[barcodes > cut_off]
   length(geneList)
   write.table(geneList, file = paste0(cellType, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
@@ -270,24 +284,6 @@ checkGene <- function(id,sym, barcode_dic, marker, data_name){
 ## 7. Validate the expression probabilities using know expressed genes e.g NS-forest markers
 
 
-                     HLCA_NSForestMarkers	CellRef_NSForestMarkers
-Alveolar macrophages ['MSR1', 'FABP4']	['MCEMP1', 'ACP5']
-Alveolar Fibroblasts ['AOC3', 'LUM']	['SCN7A', 'ITGA8']
-
-MSR1 ENSG00000038945 
-FABP4 ENSG00000170323 
-MCEMP1 ENSG00000183019
-ACP5 ENSG00000102575
-
-AOC3 ENSG00000131471 
-LUM ENSG00000139329
-SCN7A ENSG00000136546
-ITGA8 ENSG00000077943
-
-HIGD1B: ENSG00000131097, 
-KCNK3:ENSG00000171303
-
-id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943","ENSG00000131097","ENSG00000171303" )
 
 ```{r, message=FALSE,warning=FALSE, results='hide'}
 
@@ -296,36 +292,74 @@ id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575"
 #unique(hlca$ann_finest_level)
 
 
-# Mesothelium'['CALB2',ENSG00000172137 'PRG4',ENSG00000116690]	['CALB2', 'UPK3B' ENSG00000243566]
-# AT1 ['AGER'ENSG00000204305]	['RTKN2',ENSG00000182010]
-id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943","ENSG00000131097","ENSG00000171303","ENSG00000172137","ENSG00000116690","ENSG00000243566","ENSG00000204305","ENSG00000182010")
-
-## markers
-marker<-c('Alveolar macrophage_HLCA_marker', 'Alveolar macrophage_HLCA_marker','Alveolar macrophage_cellRef_marker', 'Alveolar macrophage_cellRef_marker','Alveolar fibroblast 2_HLCA_marker', 'Alveolar fibroblast 2_HLCA_marker','Alveolar fibroblast 2_cellRef_marker', 'Alveolar fibroblast 2_cellRef_marker','Pericyte_marker', 'Pericyte_marker', 'Mesothelium_marker', 'Mesothelium_HLCA_marker', 'Mesothelial cell_cellRef_marker', 'AT1_HLCA_marker','Alveolar type 1 cell_cellRef_marker')
-sym<-c('MSR1', 'FABP4','MCEMP1', 'ACP5','AOC3', 'LUM', 'SCN7A', 'ITGA8', 'HIGD1B', 'KCNK3', 'CALB2', 'PRG4', 'UPK3B' ,'AGER','RTKN2')
-id <- c("ENSG00000038945","ENSG00000170323", "ENSG00000183019","ENSG00000102575","ENSG00000131471","ENSG00000139329","ENSG00000136546","ENSG00000077943","ENSG00000131097","ENSG00000171303","ENSG00000172137","ENSG00000116690", "ENSG00000243566","ENSG00000204305","ENSG00000182010")
 
 
-## run 5 cell-type in HLCA
+## run all cell-type in HLCA
 seurat_dataset<-hlca
 dataset_name <-"hlca"
-cell_type_list <- c("Alveolar macrophages","Alveolar fibroblasts", "AT1", "Pericytes", "Mesothelium" )
-cut_off_list <- c(0.75,0.95)
-data_name<-rep("hlca", length(id))
+cell_type_list <- unlist(unique(hlca$ann_finest_level))
+cut_off_list <- c(0.75)
 
 barcode_dic2<-runBatch(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
 
-df_hlca_gene<-checkGene(id,sym, barcode_dic=barcode_dic2, marker, data_name)
- 
+saveRDS(barcode_dic2, file = "hlca_barcode_all_low.rds")
+# maker prior and post probability
+prior_marker <- prior_marker[!is.na(prior_marker$ENSEMBLID), ]
+data_name<-rep("hlca", nrow(prior_marker))
+
+df_hlca_gene<-checkGene(prior_marker$ENSEMBLID,prior_marker$NSForest_markers, barcode_dic=barcode_dic2, prior_marker$clusterName, data_name)
+
+df_hlca_post<-merge(df_hlca_gene,prior_marker,  by.x = "id", by.y = "ENSEMBLID", all.x = TRUE)
+df_hlca_post<-df_hlca_post %>% mutate(target=ifelse(df_hlca_post$`clusterName` == df_hlca_post$`cellType`, TRUE, FALSE))
+write.table(df_hlca_post, 'hlca_prior_post_ExpProb_low.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+
+colnames(df_hlca_post)
+
+### correlation
+ggplot(df_hlca_post, aes(x = prior_prob_on, y = barcode)) + 
+  geom_point(color = "blue", size = 2) +   # Scatterplot points
+  geom_smooth(method = "lm", color = "red", se = TRUE) +  # Linear regression line
+  labs(title = "Scatterplot with Correlation Line",
+       x = "f_score", 
+       y = "ExpProb") +
+  theme_minimal()
+
+cor(as.numeric(df_hlca_post$`clusterSize`), as.numeric(df_hlca_post$`barcode`),use = "complete.obs")
+cor(as.numeric(df_hlca_post$`f_score`), as.numeric(df_hlca_post$`barcode`),use = "complete.obs")
+cor(as.numeric(df_hlca_post$`prior_prob_on`), as.numeric(df_hlca_post$`barcode`), use = "complete.obs")
+## binary gene
+
+```{r, message=FALSE,warning=FALSE, results='hide'}
+prior_binary <- prior_binary[!is.na(prior_binary$ENSEMBLID), ]
+data_name<-rep("hlca", nrow(prior_binary))
+
+df_hlca_bi<-checkGene(prior_binary$ENSEMBLID,prior_binary$binary_genes, barcode_dic=barcode_dic2, prior_binary$clusterName, data_name)
+
+bi_hlca_prior_post<-merge(df_hlca_bi,prior_binary,  by.x = "id", by.y = "ENSEMBLID", all.x = TRUE)
+bi_hlca_prior_post<-bi_hlca_prior_post %>% mutate(target=ifelse(bi_hlca_prior_post$clusterName == bi_hlca_prior_post$cellType, TRUE, FALSE))
+write.table(bi_hlca_prior_post, 'bianry_hlca_prior_post_ExpProb.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+
+colnames(bi_hlca_prior_post)
+
+### correlation
+ggplot(df_hlca_post, aes(x = prior_prob_on, y = barcode)) + 
+  geom_point(color = "blue", size = 2) +   # Scatterplot points
+  geom_smooth(method = "lm", color = "red", se = TRUE) +  # Linear regression line
+  labs(title = "Scatterplot with Correlation Line",
+       x = "f_score", 
+       y = "ExpProb") +
+  theme_minimal()
+
+cor(as.numeric(df_hlca_post$`clusterSize`), as.numeric(df_hlca_post$`barcode`),use = "complete.obs")
+cor(as.numeric(df_hlca_post$`f_score`), as.numeric(df_hlca_post$`barcode`),use = "complete.obs")
+cor(as.numeric(df_hlca_post$`prior_prob_on`), as.numeric(df_hlca_post$`barcode`), use = "complete.obs")
 ```
-
-
 
 ```{r, message=FALSE,warning=FALSE, results='hide'}
  ## run 5 cell-type in cellRef
 seurat_dataset<- cellRef
 dataset_name <- "cellRef"
-cell_type_list <- c("Alveolar macrophage","Alveolar fibroblast 2","Alveolar type 1 cell","Pericyte", "Mesothelial cell")
+cell_type_list <- unlist(unique(cellRef$celltype_level3_fullname))
 cut_off_list <- c(0.75,0.95)
 barcode_dic1<-runBatch(cellRef,dataset_name,cell_type_list,cut_off_list)
 
@@ -370,7 +404,21 @@ named_entities:
 ```{r}
 
 library(clusterProfiler)
+
 geneList <- read.csv("AT10.75.tsv")
+gene<-unlist(geneList)
+geneList1 <- read.csv("AT10.95.tsv")
+gene1<-unlist(geneList1)
+geneList2 <- read.csv("Alveolar macrophages0.75.tsv")
+gene2<-unlist(geneList2)
+geneList3 <- read.csv("Alveolar macrophages0.95.tsv")
+gene3<-unlist(geneList3)
+cat("AT1 75%", length(gene), "\n")
+cat("AT1 95%", length(gene1),"\n")
+cat("Alveolar macrophages 75%", length(gene2), "\n")
+cat("Alveolar macrophages 95%", length(gene3), "\n")
+
+
 gene<-unlist(geneList)
 go <- enrichGO(gene=gene, OrgDb="org.Hs.eg.db",keyType = "ENSEMBL", ont="BP")
 go_df <-as.data.frame(go)
