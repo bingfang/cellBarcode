@@ -1,7 +1,7 @@
 ---
-title: "Data plan for expProb"
+title: "Expression Probability (expProb)"
 author: "Bingfang"
-date: "2/6/2025"
+date: "2/12/2025"
 output:
   html_document: default
   word_document: default
@@ -14,17 +14,27 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## 1. Descriptions
 
-The ultimate goal of this project is to identify a list of truly expressed genes in a specific cell type, which will be used for the functional analysis of biological processes and pathways in that cell type.
+The ultimate goal of this project is to identify a list of truly expressed genes in a specific cell type, which will be used for the functional analysis of biological processes and pathways in that cell type. This is in contrast to genes that are “differentially expressed” when comparing one cell type to other cell types or one condition to other conditions.
 
-In previous works, I applied a method developed by Grakskit et al. (Statistics, 2023) to calculate the expression probability (expProb) for each gene in each state ("null", "off", "on") in each lung cell type (see lung_geneExp_barcodeV4.Rmd). 
+In previous works, I applied a method developed by Grakskit et al. (Statistics, 2023) to calculate the expression probability (expProb). The expProb method defines the expression distribution for each individual gene in three states:1) Null state – Modeled by an exponential component accounting for counts that were mostly zeros, consistent with practically no expression.2) Off state – Modeled by a log-normal component accounting for low counts, consistent with a nonzero background level of expression that is distinctly lower than the expressed state.3)On state – Modeled by a log-normal component accounting for the expressed state.I calculated the expression probability for each gene in each state for each lung cell type (see lung_geneExp_barcodeV4.Rmd).
 
-To validate expProb, I calculated the expression probability of "on" state for NS-Forest genes (including marker genes and binary genes) in their targeted cell type—the cell type where they were identified as marker genes. However, about 25% of marker genes have "on" state expression probabilities lower than 75% in their targeted cell type (see lung_geneExp_barcodeV5.Rmd).
+To validate expProb, I calculated the expression probability of "on" state for NS-Forest genes (including marker genes and binary genes) in their targeted cell type—the cell type where they were identified as marker genes. However, about 25% of marker genes have "on" state expression probabilities lower than 75%, a artificial cutoff, in their targeted cell type (see lung_geneExp_barcodeV5.Rmd).
 
-When calculating the expression probability of "on" state for differentially expressed (DE) genes. About 10% of DE genes have "on" state expression probabilities lower than 75% in the cell type where they are known to be expressed, see lung_geneExp_barcodeV6.Rmd). 
+When calculating the expression probability of "on" state for differentially expressed (DE) genes. About 10% of DE genes have "on" state expression probabilities lower than 75% in the cell type where they are known to be expressed, see lung_geneExp_barcodeV6.Rmd).
 
 It is a more stringent test to validate expProb using NS-Forest genes than using DE genes. Understanding why a subset of NS-Forest genes has predicted low expression probabilities could help us determine whether to use this expProb model to generate the expressed gene list for our knowledge graph and whether modification of model can improve the performance.
 
-## 2. Data analysis plan
+2. Data analysis plan
+2.1 The purposes of this Rmarkdown
+The question is: Why does a subset of NS-Forest genes or genes that are differentially expressed have a low expression probabilities in their target cell type? The hypothesis is that since NS-Forest genes are only expressed in one or a few cell types and often expressed in low level, the model might be challenged to classify their expression state and expression probility.
+
+2.2 The rationales behind each analysis step
+1.Make distribution plots for the markers with wrong expProb.
+Studing the expression distribution of the subset gene in all cell types and their target cell type may shed a light about the reason that wrong classification and wrong probability.
+
+2.Check all prior and post parameter measure for the markers with wrong expProb, especially lamda.
+Studing all prior and post parameter measure for the markers with wrong expProb, especially lamda may help us to improve the model
+
 
 ### 2.1 The purposes of this Rmarkdown
 
@@ -70,7 +80,7 @@ library(caret)
 # Get gene-specific distributions
 # Publication:https://academic.oup.com/biostatistics/article/23/4/1150/6622011
 # https://github.com/igrabski/scRNAseq-cell-type
-load('params_EM_81020.rda') 
+load('params_update_hlca.rda') 
 pi.all.g <- params[[1]]         # π-null,π-off, probability of null and off state.    
 g.on.all.g <- params[[2]]       # μ0j shift from μ0 
 g.off.all.g <- params[[3]]      # μ1j shift from μ1
@@ -87,7 +97,7 @@ mu.g<-c(-12.73153,-8.301349)    # global means for gene rates on a log scale, (�
 
 ```{r, echo=TRUE,warning=FALSE,message=FALSE} 
 ## Read .rds file
-#hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
+hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
 
 ## Preview the dataset
 #summary(hlca@assays$RNA@meta.features$feature_type)
@@ -227,7 +237,7 @@ Three functions to generate expression probability for cell types
 
 ## for cellRef, meta_feature is "celltype_level3_fullname"
 ## for hlca, meta_feature is "ann_finest_level"
-## Run individual cell type.
+## Run individual cell type, output expression probability of on state
 generateCellType_barcode <- function(seurat_dataset,dataset_name, cellType, cut_off){
   # subset by cell type
   if(dataset_name=="hlca") {
@@ -246,13 +256,37 @@ generateCellType_barcode <- function(seurat_dataset,dataset_name, cellType, cut_
   barcodes <- getBarcode2(data.d)
   geneList <-rownames(barcodes)[barcodes > cut_off]
   length(geneList)
-  write.table(geneList, file = paste0(cellType, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  #write.table(geneList, file = paste0(cellType, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
   return(barcodes)
   
 }
 
+# Run individual cell type, return rate and three probabilities
+generateCellType_barcode2 <- function(seurat_dataset,dataset_name, cellType, cut_off){
+  # subset by cell type
+  if(dataset_name=="hlca") {
+  data_subset <- subset(seurat_dataset, subset = ann_finest_level == cellType)
+  } else if(dataset_name=="cellRef"){
+  data_subset <- subset(seurat_dataset, subset = celltype_level3_fullname == cellType)
+  }
+  matrix<- as.matrix(data_subset@assays$RNA@counts)
 
-## Run multiple cell types
+  labels<-c(rep(cellType,dim(matrix)[2]))
+  
+  # calculte rate and probability
+  data.d <- trainAllReference(matrix,labels,discrim_only=FALSE)
+
+  # get barcode and gene list
+  barcodes <- getBarcode2(data.d)
+  geneList <-rownames(barcodes)[barcodes > cut_off]
+  length(geneList)
+  #write.table(geneList, file = paste0(cellType, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  return(data.d)
+  
+}
+
+
+## Run multiple cell types, return expression probability of on state
 runBatch<-function(seurat_dataset,dataset_name,cell_type_list,cut_off_list){
   dic ={}
   for(cellType in cell_type_list){
@@ -260,6 +294,21 @@ runBatch<-function(seurat_dataset,dataset_name,cell_type_list,cut_off_list){
     for (cut_off in cut_off_list) {
       
       code<-generateCellType_barcode(seurat_dataset, dataset_name,cellType, cut_off)
+      print(head(code))
+      dic[[cellType]]<-as.data.frame(code) 
+    }
+  }
+  return(dic)
+}
+
+## Run multiple cell types,return rate and three probabilities
+runBatch2<-function(seurat_dataset,dataset_name,cell_type_list,cut_off_list){
+  dic ={}
+  for(cellType in cell_type_list){
+   
+    for (cut_off in cut_off_list) {
+      
+      code<-generateCellType_barcode2(seurat_dataset, dataset_name,cellType, cut_off)
       print(head(code))
       dic[[cellType]]<-as.data.frame(code) 
     }
@@ -286,6 +335,42 @@ checkGene <- function(id,sym, barcode_dic, marker, data_name){
 
 ## 7. Validate the expression probabilities using know expressed genes 
 
+```{r, message=FALSE}
+## run all cell-type in HLCA
+seurat_dataset<-hlca
+dataset_name <-"hlca"
+cell_type_list <- unlist(unique(hlca$ann_finest_level))
+cut_off_list <- c(0.75)
+
+barcode_dic2<-runBatch2(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
+saveRDS(barcode_dic2, file = "hlca_barcode_detail.rds")
+
+barcode_dic2 <- readRDS("hlca_barcode_detail.rds")
+
+# combine  prior and post probability for NS-forest marker
+prior_marker <- prior_marker[!is.na(prior_marker$ENSEMBLID), ]
+data_name<-rep("hlca", nrow(prior_marker))
+
+df_hlca_gene<-checkGene(prior_marker$ENSEMBLID,prior_marker$NSForest_markers, barcode_dic=barcode_dic2, prior_marker$clusterName, data_name)
+
+df_hlca_post<-merge(df_hlca_gene,prior_marker,  by.x = "id", by.y = "ENSEMBLID", all.x = TRUE)
+df_hlca_post<-df_hlca_post %>% mutate(target=ifelse(df_hlca_post$`clusterName` == df_hlca_post$`cellType`, TRUE, FALSE))
+
+marker_hlca_prior_post <-df_hlca_post%>%  select(c("NSForest_markers","id","marker","clusterSize","f_score", "marker_count","data","cellType","V1","V2","prior_prob_off","prior_prob_on", "barcode","target"))
+colnames(marker_hlca_prior_post)<-c("NSForest_markers","ENSEMBLId","TargetCellType","clusterSize","f_score", "marker_count","data","dataCellSet","pi_null","pi_off","prior_prob_off","prior_prob_on", "expProb","targeted")
+write.table(marker_hlca_prior_post, 'marker_hlca_prior_post_update.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+
+
+
+
+
+
+
+
+
+
+
+
 ### 7.1. Check the "on" state probability of NS-forest markers and calculate the confusion matrix. 
 
 The following confusion matrix are based on assumption that marker genes expressed and only expressed in their targeted cell type. Since many markers expressed in more than their targeted cell type. FP counts were not correct. Therefore, recall is trustworthy, the precision is not correct.
@@ -293,7 +378,7 @@ The following confusion matrix are based on assumption that marker genes express
 #### 7.1.1 Probabilty cut off 0.75
 
 ```{r, message=FALSE,warning=FALSE}
-on_hlca_post <- read.table("marker_hlca_prior_post.tsv", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+on_hlca_post <- read.table("marker_hlca_prior_post_update.tsv", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
 
 on_hlca_post_75<-on_hlca_post %>% mutate(expected_value= ifelse(targeted=="TRUE", 1,0 ),
                                             predicted_value= ifelse(expProb >0.75, 1,0 ))
