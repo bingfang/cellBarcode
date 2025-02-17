@@ -1,0 +1,221 @@
+---
+title: "Data plan for geneExp"
+author: "Bingfang"
+date: "12/12/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Objective
+
+Identify a list of true expressed genes of a specific cell type, which will use to for functional analysis of biological process/pathway of the cell type.
+
+## 2. Set environment
+
+
+```{r, echo=TRUE,warning=FALSE,message=FALSE}
+#install.packages("sads")  # not working on local MAC
+library(sads)
+#install.packages("BiocParallel")
+library(BiocParallel)
+library(Seurat)
+library(org.Hs.eg.db)
+#install.packages("Matrix")
+library(Matrix)
+# package for goenrichment
+library(clusterProfiler)
+library(AnnotationDbi)
+
+# Get gene-specific distributions
+# Publication:https://academic.oup.com/biostatistics/article/23/4/1150/6622011
+# https://github.com/igrabski/scRNAseq-cell-type
+
+load('params_EM_81020.rda') 
+pi.all.g <- params[[1]]         # π-null,π-off, probabilty of null and off state.    
+g.on.all.g <- params[[2]]       # σ1j⁠
+g.off.all.g <- params[[3]]      # σ0j
+a.all.g <- params[[4]]          # αj⁠
+sigma.all.g <- params[[5]]      # μ0j,μ1j shift from (μ0 , μ1)
+mu.g<-c(-12.73153,-8.301349)    # global means for gene rates on a log scale, (μ0 , μ1)
+
+```
+
+## 2. Data collection and preprocess.
+
+### 2.1 Read .rds file
+
+HLCA data from cellXgene
+
+cellRef data from cellXgene
+
+```{r} 
+
+hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
+cellRef = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/443f7fb8-2a27-47c3-98f6-6a603c7a294e_cellRef.rds")
+
+summary(hlca@assays$RNA@meta.features$feature_type)
+```
+
+### 2.2 remove low quality cells
+
+```{}
+hlca_filtered <- subset(hlca,subset = nFeaturess_RNA_detected > 200 & nFeaturess_RNA_detected < 2500)
+
+## need to convert to gene symbol to filter percent.mt < 5
+##hlca_filtered <- subset(hlca,subset = nFeaturess_RNA_detected > 200 & nFeaturess_RNA_detected < 2500 & percent.mt < 5)
+```
+
+### 2.3 subset by cell type
+
+```{r}
+unique(hlca$cell_type)
+
+hlca_mucus_secreting <- subset(hlca, subset = cell_type == "mucus secreting cell")
+hlca_ionocyte <- subset(hlca, subset = cell_type == "ionocyte")
+hlca_2types <- subset(hlca, subset = cell_type %in% c("mucus secreting cell", "ionocyte"))
+
+
+typeof(hlca_mucus_secreting)
+names(hlca_mucus_secreting)
+head(hlca_mucus_secreting$RNA)
+
+
+typeof(hlca_mucus_secreting$RNA)
+dim(hlca_mucus_secreting$RNA)
+head(hlca_mucus_secreting$RNA@counts)
+
+
+```
+
+
+## 2.4 geneXcell matrix
+
+
+```{r}
+# hlca  is seurat object from readRDS
+sparse_matrix_mucus_secreting <- hlca_mucus_secreting@assays$RNA@counts
+hlca_matrix_mucus_secreting <- as.matrix(sparse_matrix_mucus_secreting) ## if use full dataset, it will generate 130G matrix
+
+sparse_matrix_ionocyte <- hlca_ionocyte@assays$RNA@counts
+hlca_matrix_ionocyte <- as.matrix(sparse_matrix_ionocyte) 
+
+sparse_matrix_2types<-hlca_2types@assays$RNA@counts
+hlca_matrix_2types <- as.matrix(sparse_matrix_2types) 
+hlca_matrix_2types_labels<-c(rep('mucus_secreting',dim(hlca_matrix_mucus_secreting)[2]),rep('ionocyte',dim(hlca_matrix_ionocyte)[2]))
+
+dim(hlca_matrix_2types)                            
+length(hlca_matrix_2types_labels)
+sum(is.na(hlca_matrix_2types))
+
+datSum<-rowSums(hlca_matrix_2types)
+datSum[1:10]
+```
+
+## 4. Calculate rate and probability
+
+
+
+```{r, message=FALSE}
+
+# Train reference data
+trainReference <- function(ref,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigma.all=sigma.all.g,
+                           g.on.all=g.on.all.g,g.off.all=g.off.all.g,discrim_only=FALSE) {
+  # Subset to genes present in both reference data and knowledge base
+  common <- intersect(names(ref),rownames(pi.all))
+  if (discrim_only) {
+    common <- intersect(common,discrim.g)
+  }
+  N <- sum(ref)
+  ref <- ref[common]
+  pi.all2 <- pi.all[common,]
+  a.all2 <- a[common]
+  sigma.all2 <- sigma.all[common,]
+  g.on.all2 <- g.on.all[common]
+  g.off.all2 <- g.off.all[common]
+  
+  # Compute mixing probability for each component
+  prob.exp <- pi.all2[,1]*dnbinom(ref,1,1/((N/(a.all2))+1))
+  prob.ln1 <- sapply(common,function(j) 
+    pi.all2[j,2]*sads::dpoilog(ref[j],mu[1]+g.off.all2[j]+log(N),sigma.all2[j,1]))
+  prob.ln2 <- sapply(common,function(j) 
+    (1-pi.all2[j,1]-pi.all2[j,2])*sads::dpoilog(ref[j],mu[2]+g.on.all2[j]+log(N),sigma.all2[j,2])) 
+  return(data.frame(rate=ref/N,exp=prob.exp/(prob.exp+prob.ln1+prob.ln2),ln1=prob.ln1/(prob.exp+prob.ln1+prob.ln2),ln2=prob.ln2/(prob.exp+prob.ln1+prob.ln2)))
+}
+
+
+# Train all reference
+trainAllReference <- function(data,labels,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigma.all=sigma.all.g,
+                              g.on.all=g.on.all.g,g.off.all=g.off.all.g,discrim_only=FALSE) {
+  cell.types <- unique(labels)
+  dataSums <- lapply(cell.types,function(c) rowSums(data[,labels==c]))
+
+  d.list <- bplapply(dataSums,trainReference,pi.all=pi.all,mu=mu,a=a,sigma.all=sigma.all,
+                     g.on.all=g.on.all,g.off.all=g.off.all,discrim_only=discrim_only)
+  names(d.list) <- cell.types
+  return(d.list)
+}
+
+
+hlca_2types.d <- trainAllReference(hlca_matrix_2types,hlca_matrix_2types_labels,discrim_only=FALSE)
+head(hlca_2types.d[[1]])
+```
+
+## 5. getBarcode
+
+```{r}
+getBarcode<-function(d.list) {
+  barcode <- sapply(d.list,function(x) 1-x[,2]-x[,3])      # ### Barcode is   ln2=prob.ln2/(prob.exp+prob.ln1+prob.ln2) if greater than 0
+  barcode[barcode<0] <- 0
+  colnames(barcode) <- names(d.list)
+  rownames(barcode) <- rownames(d.list[[1]])
+  return(barcode)
+}
+
+barcodes <- getBarcode(hlca_2types.d)
+
+barcodes<- as.data.frame(barcodes)
+head(barcodes)
+
+```
+
+```{r}
+for (cut_off in c(0.5,0.75,0.95)) {
+  cat("The following is the length of the expressed gene list for cell type mucus_secreting cell, and ionocyte, if the probability of gene expression is great than ", cut_off , "\n")
+  
+  mucus_secreting_geneList <-rownames(barcodes)[barcodes$`mucus_secreting` > cut_off]
+  cat("mucus_secreting:", length(mucus_secreting_geneList), "\n")
+  write.table(mucus_secreting_geneList, file = paste0("mucus_secreting", cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  ionocyte_geneList <-rownames(barcodes)[barcodes$`ionocyte` > cut_off]
+  cat("ionocyte:", length(ionocyte_geneList), "\n")
+  write.table(ionocyte_geneList, file = paste0("ionocyte", cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  
+}
+```
+
+## 6. Visualization
+
+```{r}
+library(clusterProfiler)
+mucus_secreting_geneList
+go_mucus_secreting <- enrichGO(gene=mucus_secreting_geneList, OrgDb="org.Hs.eg.db",keyType = "ENSEMBL", ont="BP")
+go_mucus_secreting_df <-as.data.frame(go_mucus_secreting)
+colnames(go_mucus_secreting_df)
+```
+
+## 7. Validation
+
+Compare results of the same cell types from different datasets e.g. cellRef vs. Hlca
+
+Compare results from different cell types. e.g. mucus_secreting cell vs. ionocyte.
+
+Subsampling, Bootstrap Aggregation,Perturbation ( add 10% cells from other cell type)
+
+Compare with the known go term of the cell type.
+
+## 8. Interpretation
+
+## 9. Reporting
+Summarize findings in a detailed report or manuscript with figures and statistical analyses.

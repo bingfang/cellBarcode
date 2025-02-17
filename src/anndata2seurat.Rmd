@@ -1,0 +1,44 @@
+---
+title: "anndata2seurat"
+author: "bingfang"
+date: "2025-01-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## library
+
+### Command + Shift + C This toggles comments on and off for the selected lines.
+<!-- if (!require("BiocManager", quietly = TRUE)) -->
+<!--     install.packages("BiocManager") -->
+
+<!-- BiocManager::install("SingleCellExperiment") -->
+<!-- BiocManager::install("zellkonverter") -->
+
+<!-- if (!requireNamespace("remotes", quietly = TRUE)) { -->
+<!--   install.packages("remotes") -->
+<!-- } -->
+<!-- remotes::install_github("mojaveazure/seurat-disk") -->
+
+```{r, echo=TRUE,warning=FALSE,message=FALSE, results='hide'}
+library(SingleCellExperiment)
+library(zellkonverter)
+library(SeuratDisk)
+library(Seurat)
+
+CellRef <- readH5AD("/data/ScheuermannGroup/cellxgene/KG_data/LungMAP_HumanLung_CellRef.v1.1.h5ad")
+assayNames(CellRef) # here you will see that assay name is "X"
+counts_matrix <- assay(CellRef, "X")
+assay(CellRef, "counts") <- counts_matrix
+assay(CellRef, "logcounts") <- log1p(assay(CellRef, "counts"))
+seurat_CellRef <- as.Seurat(CellRef)
+
+saveRDS(seurat_CellRef, file = "seurat_CellRef.rds")
+
+```
+
+## Including Plots
+

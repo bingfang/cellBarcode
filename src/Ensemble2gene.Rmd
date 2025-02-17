@@ -1,0 +1,78 @@
+---
+title: "ensembl2gene"
+author: "bingfang"
+date: "2024-12-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r,eval=FALSE}
+#install.packages("devtools")
+library(devtools)
+#install.packages("tidyverse")
+library(tidyverse)
+devtools::install_github("stephenturner/annotables")
+library(annotables)
+```
+
+## Select organism and review information from annotables
+
+```{}
+
+str(grch38)
+str(grch38_tx2gene)
+
+
+```
+## Convert Ensemble ID to gene symbol 
+
+```{r,results='hide',eval=FALSE}
+
+
+
+files <- list.files(path = "/Users/xubr/local_projects/_1DEG_GO/output", pattern = "*_filtered_list.txt$",full.names = TRUE)
+
+print(files)
+for (f in files) {
+  base <- str_split(f, "_filtered_list.txt" )
+  print(base[[1]][1])
+  ensemble_ID <- read.delim(paste0("",f), header = FALSE, sep = "\n")
+  colnames(ensemble_ID)<-c("ensgene")
+  geneList<-left_join(ensemble_ID,grch38) %>% select(`symbol`)
+  geneList
+  write.table(geneList, paste0(base[[1]][1], "_symbol.tsv"), row.names=FALSE, col.names=FALSE,sep="\n",quote=FALSE)
+
+
+}
+
+```
+
+## Covert gene symble to Ensemble ID
+
+```{r,results='hide',eval=FALSE}
+
+data_dir<-"/Users/xubr/local_projects/_8geneExp/cellTypeXgene/Data"
+name_pattern <-"*_import1.txt$"
+
+gene_files <-list.files(path = data_dir, pattern = name_pattern,full.names = TRUE)
+print(gene_files) 
+
+for (f in gene_files) {
+  base <- str_split(f, "_import1.txt.txt" )
+  print(base[[1]][1])
+  data_in <- read.delim(paste0("",f), header = TRUE, sep = "\t", skip = 1)
+  gene_syb <-data_in
+  colnames(gene_syb)<-c("symbol")
+  geneList<-left_join(gene_syb,grch38) %>% select(`symbol`)
+  geneList
+  write.table(geneList, paste0(base[[1]][1], "_symbol.tsv"), row.names=FALSE, col.names=FALSE,sep="\n",quote=FALSE)
+
+
+}
+
+```

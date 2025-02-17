@@ -1,0 +1,545 @@
+---
+title: "Expression Probability (expProb)"
+author: "Bingfang"
+date: "2/12/2025"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Descriptions
+
+The ultimate goal of this project is to identify a list of truly expressed genes in a specific cell type, which will be used for the functional analysis of biological processes and pathways in that cell type. This is in contrast to genes that are “differentially expressed” when comparing one cell type to other cell types or one condition to other conditions.
+
+In previous works, I applied a method developed by Grakskit et al. (Statistics, 2023) to calculate the expression probability (expProb). The expProb method defines the expression distribution for each individual gene in three states:1) Null state – Modeled by an exponential component accounting for counts that were mostly zeros, consistent with practically no expression.2) Off state – Modeled by a log-normal component accounting for low counts, consistent with a nonzero background level of expression that is distinctly lower than the expressed state.3)On state – Modeled by a log-normal component accounting for the expressed state.I calculated the expression probability for each gene in each state for each lung cell type (see lung_geneExp_barcodeV4.Rmd).
+
+To validate expProb, I calculated the expression probability of "on" state for NS-Forest genes (including marker genes and binary genes) in their targeted cell type—the cell type where they were identified as marker genes. However, about 25% of marker genes have "on" state expression probabilities lower than 75%, a artificial cutoff, in their targeted cell type (see lung_geneExp_barcodeV5.Rmd).
+
+When calculating the expression probability of "on" state for differentially expressed (DE) genes. About 10% of DE genes have "on" state expression probabilities lower than 75% in the cell type where they are known to be expressed, see lung_geneExp_barcodeV6.Rmd).
+
+It is a more stringent test to validate expProb using NS-Forest genes than using DE genes. Understanding why a subset of NS-Forest genes has predicted low expression probabilities could help us determine whether to use this expProb model to generate the expressed gene list for our knowledge graph and whether modification of model can improve the performance.
+
+# 2. Data analysis plan
+## 2.1 The purposes of this Rmarkdown
+
+The question is: why does a subset of NS-Forest genes or differentially expressed genes have low expression probabilities in their target cell type? The hypothesis is that the parameters were trained on data collected before 2019. After re-training, the performance could be improved.
+
+
+## 2.2 The rationales behind each analysis step
+
+### 2.2.1 Calculate expression probability (expProb) using the updated parameter 'params_update_hlca.rda' from re-training
+
+The old parameters (params_EM_81020.rda) were trained on data collected before 2019. After re-training, the performance could be improved.
+
+### 2.2.2 Calculate recall and adjust precision when using NS-forest gene as true positive for validation
+
+To investigate whether re-training improves recall without worsening precision.
+
+### 2.2.3 Analyze all prior and post measurements for the NS-forest markers 
+
+Analyze all prior and post measurements for the NS-forest markers with low expression probability (expProb, ln2) in the "on" state. Identify explanations for false negatives and explore opportunities for model improvement.
+ 
+
+## 3. Set environment
+
+
+```{r, echo=TRUE,warning=FALSE,message=FALSE, results='hide'}
+#install.packages("sads")  
+library(sads)
+#install.packages("BiocParallel")
+library(BiocParallel)
+library(Seurat)
+library(org.Hs.eg.db)
+#install.packages("Matrix")
+library(Matrix)
+# package for goenrichment
+library(clusterProfiler)
+library(AnnotationDbi)
+# package for Venn diagram
+library(gplots, lib.loc = "/usr/local/apps/R/4.4/site-library_4.4.2")
+library(tidyverse)
+# package for plot
+install.packages("ggplot2")  
+library(ggplot2)
+# package for confusion matrix
+install.packages('caret')
+library(caret)
+
+
+# Get gene-specific distributions
+# Publication:https://academic.oup.com/biostatistics/article/23/4/1150/6622011
+# https://github.com/igrabski/scRNAseq-cell-type
+load('params_update_hlca.rda') 
+pi.all.g <- params[[1]]         # π-null,π-off, probability of null and off state.    
+g.on.all.g <- params[[2]]       # μ0j shift from μ0 
+g.off.all.g <- params[[3]]      # μ1j shift from μ1
+a.all.g <- params[[4]]          # αj⁠
+sigma.all.g <- params[[5]]      # σ0j,σ1j
+mu.g<-c(-12.73153,-8.301349)    # global means for gene rates on a log scale, (μ0 , μ1)
+
+```
+
+
+## 4. Data 
+
+### load HLCA core data from cellXgene
+
+```{r, echo=TRUE,warning=FALSE,message=FALSE} 
+## Read .rds file
+hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
+
+## Preview the dataset
+#summary(hlca@assays$RNA@meta.features$feature_type)
+#head(hlca@assays$RNA@meta.features$feature_name)
+#table(hlca@meta.data$cell_type_ontology_term_id)
+#table(hlca@meta.data$cell_type)
+#table(hlca@meta.data$ann_finest_level)
+
+```
+
+### load data of NS-forest marker and binary marker genes, calculate prior probability.
+
+```{r,echo=TRUE,warning=FALSE,message=FALSE} 
+# The full table of gene symbol and Ensemble ID
+gencode<-read.csv("./data/gencode.v47.annotation.csv")
+gene_Ensemble <-gencode %>% select(c(`gene_name`, "ENSEMBLID"))
+
+# load NS-forest marker gene and binary marker gene
+#list.files("./data/")
+binary_gene<-read.csv("./data/hlcacore_ann_finest_label_all_supplementary.csv", sep=",")
+NSmarker_gene<-read.csv("./data/hlcacore_ann_finest_level.markers.csv", sep = ',')
+
+# change format of NSmarker_gene
+#NSmarker_gene$NSForest_markers[1]
+NSmarker_gene$NSForest_markers <-gsub("]", "",NSmarker_gene$NSForest_markers)
+NSmarker_gene$NSForest_markers <-gsub("\\[","",NSmarker_gene$NSForest_markers)
+NSmarker_gene$NSForest_markers <-gsub(" ","",NSmarker_gene$NSForest_markers)
+NSmarker_gene$NSForest_markers <-gsub("'","",NSmarker_gene$NSForest_markers)
+NSmarker_gene <- NSmarker_gene %>%
+  separate_rows(NSForest_markers, sep = ",")
+
+# merge to obtain ENSEMBLID
+NSmarker<-merge(NSmarker_gene,gene_Ensemble, by.x = "NSForest_markers", by.y = "gene_name", all.x = TRUE) 
+geneList_bi<-merge(binary_gene,gene_Ensemble, by.x = "binary_genes", by.y = "gene_name", all.x = TRUE) 
+#gencode[gencode$gene_name == "",] ## 4 NS-forest marker don't have EnsemblID
+
+
+# generate a data frame of π-null,π-off, which is the probabilities of null and off states. 
+pi_df<-as.data.frame(pi.all.g)
+pi_df$`ENSEMBLID`<-rownames(pi_df)
+
+# Obtain prior probability of expression for the NS-forest marker genes 
+prior_marker<-merge(NSmarker, pi_df, by = "ENSEMBLID", all.x = TRUE) 
+prior_marker$prior_prob_off <- prior_marker$V1 + prior_marker$V2
+prior_marker$prior_prob_on <- 1-(prior_marker$V1 + prior_marker$V2)
+
+# visualize prior probabilities for the NS-forest marker genes 
+prior_marker_clean<-prior_marker %>% select(c("ENSEMBLID","NSForest_markers","clusterName","clusterSize","f_score","marker_count","binary_genes","V1","V2","prior_prob_off","prior_prob_on")) %>% drop_na()
+#hist(as.numeric(prior_marker$prior_prob_on),main = "", xlab = "Prior probability of expression for the marker genes") 
+
+# number of row remove due to NA
+#dim(prior_marker)
+#dim(prior_marker_clean)
+# MTRNR2L8: no Ensemblid
+# C1orf194: no Ensemblid
+# CD68: no parameter
+
+# Obtain prior probability of expression for the NS-forest binary genes 
+prior_binary<-merge(geneList_bi, pi_df, by = "ENSEMBLID", all.x = TRUE) 
+prior_binary$prior_prob_off <- prior_binary$V1 + prior_binary$V2
+prior_binary$prior_prob_on <- 1-(prior_binary$V1 + prior_binary$V2)
+
+# number of row remove due to NA
+prior_binary_clean<- prior_binary%>%drop_na()
+#dim(prior_binary)
+#dim(prior_binary_clean)
+
+# visualize prior probabilities for binary genes
+#hist(as.numeric(prior_binary$prior_prob_on),main = "", xlab = "Prior probability of expression of the Binary genes")
+
+```
+
+Notes:
+
+HLCA and cellRef are combined datasets. Will integration methods affect the proportion/rate (𝜆) of individual gene expression counts in total gene expression counts in a cell type?
+
+
+## 5. Functions for calculating rate,three state probabilities
+
+Functions from the 2022 Biostatistics paper
+
+
+```{r, message=FALSE}
+
+# Train reference data
+trainReference <- function(ref,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigma.all=sigma.all.g,
+                           g.on.all=g.on.all.g,g.off.all=g.off.all.g,discrim_only=FALSE) {
+  # Subset to genes present in both reference data and knowledge base
+  common <- intersect(names(ref),rownames(pi.all))
+  if (discrim_only) {
+    common <- intersect(common,discrim.g)
+  }
+  N <- sum(ref)
+  ref <- ref[common]
+  pi.all2 <- pi.all[common,]
+  a.all2 <- a[common]
+  sigma.all2 <- sigma.all[common,]
+  g.on.all2 <- g.on.all[common]
+  g.off.all2 <- g.off.all[common]
+  
+  # Compute mixing probability for each component
+  prob.exp <- pi.all2[,1]*dnbinom(ref,1,1/((N/(a.all2))+1))
+  prob.ln1 <- sapply(common,function(j) 
+    pi.all2[j,2]*sads::dpoilog(ref[j],mu[1]+g.off.all2[j]+log(N),sigma.all2[j,1]))
+  prob.ln2 <- sapply(common,function(j) 
+    (1-pi.all2[j,1]-pi.all2[j,2])*sads::dpoilog(ref[j],mu[2]+g.on.all2[j]+log(N),sigma.all2[j,2])) 
+  return(data.frame(rate=ref/N,exp=prob.exp/(prob.exp+prob.ln1+prob.ln2),ln1=prob.ln1/(prob.exp+prob.ln1+prob.ln2),ln2=prob.ln2/(prob.exp+prob.ln1+prob.ln2)))
+}
+
+
+# Train all reference
+trainAllReference <- function(data,labels,pi.all=pi.all.g,mu=mu.g,a=a.all.g,sigma.all=sigma.all.g,
+                              g.on.all=g.on.all.g,g.off.all=g.off.all.g,discrim_only=FALSE) {
+  cell.types <- unique(labels)
+  dataSums <- lapply(cell.types,function(c) rowSums(data[,labels==c]))
+
+  d.list <- bplapply(dataSums,trainReference,pi.all=pi.all,mu=mu,a=a,sigma.all=sigma.all,
+                     g.on.all=g.on.all,g.off.all=g.off.all,discrim_only=discrim_only)
+  names(d.list) <- cell.types
+  return(d.list)
+}
+
+
+# getBarcode of on state
+getBarcode<-function(d.list) {
+  barcode <- sapply(d.list,function(x) 1-x[,2]-x[,3])      # ### Barcode is   ln2=prob.ln2/(prob.exp+prob.ln1+prob.ln2) if greater than 0
+  barcode[barcode<0] <- 0
+  colnames(barcode) <- names(d.list)
+  rownames(barcode) <- rownames(d.list[[1]])
+  return(barcode)
+}
+
+# get probability of on and off state
+getBarcode2 <- function(d.list) {
+  barcode <- sapply(d.list,function(x) 1-x[,2])
+  barcode[barcode<0] <- 0
+  colnames(barcode) <- names(d.list)
+  rownames(barcode) <- rownames(d.list[[1]])
+  return(barcode)
+}
+```
+
+
+## 6. Functions for calculating cell type-specific expression probability for lung datasets 
+
+Three functions to generate expression probability for cell types
+
+```{r, message=FALSE}
+
+## for cellRef, meta_feature is "celltype_level3_fullname"
+## for hlca, meta_feature is "ann_finest_level"
+## Run individual cell type, output expression probability of on state
+generateCellType_barcode <- function(seurat_dataset,dataset_name, cellType, cut_off){
+  # subset by cell type
+  if(dataset_name=="hlca") {
+  data_subset <- subset(seurat_dataset, subset = ann_finest_level == cellType)
+  } else if(dataset_name=="cellRef"){
+  data_subset <- subset(seurat_dataset, subset = celltype_level3_fullname == cellType)
+  }
+  matrix<- as.matrix(data_subset@assays$RNA@counts)
+
+  labels<-c(rep(cellType,dim(matrix)[2]))
+  
+  # calculte rate and probability
+  data.d <- trainAllReference(matrix,labels,discrim_only=FALSE)
+
+  # get barcode and gene list
+  barcodes <- getBarcode(data.d)
+  geneList <-rownames(barcodes)[barcodes > cut_off]
+  length(geneList)
+  #write.table(geneList, file = paste0(cellType, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  return(barcodes)
+  
+}
+
+# Run individual cell type, return rate and three probabilities
+generateCellType_rate <- function(seurat_dataset,dataset_name, cellType, cut_off){
+  # subset by cell type
+  if(dataset_name=="hlca") {
+  data_subset <- subset(seurat_dataset, subset = ann_finest_level == cellType)
+  } else if(dataset_name=="cellRef"){
+  data_subset <- subset(seurat_dataset, subset = celltype_level3_fullname == cellType)
+  }
+  matrix<- as.matrix(data_subset@assays$RNA@counts)
+
+  labels<-c(rep(cellType,dim(matrix)[2]))
+  
+  # calculte rate and probability
+  data.d <- trainAllReference(matrix,labels,discrim_only=FALSE)
+
+  # get barcode and gene list
+  barcodes <- getBarcode(data.d)
+  geneList <-rownames(barcodes)[barcodes > cut_off]
+  length(geneList)
+  #write.table(geneList, file = paste0(cellType, cut_off, ".tsv"), sep = "\n", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  return(data.d)
+  
+}
+
+
+## Run multiple cell types, return expression probability of on state
+runBatch<-function(seurat_dataset,dataset_name,cell_type_list,cut_off_list){
+  dic ={}
+  for(cellType in cell_type_list){
+   
+    for (cut_off in cut_off_list) {
+      
+      code<-generateCellType_barcode(seurat_dataset, dataset_name,cellType, cut_off)
+      print(head(code))
+      dic[[cellType]]<-as.data.frame(code) 
+    }
+  }
+  return(dic)
+}
+
+## Run multiple cell types,return rate and three probabilities
+runBatch_rate<-function(seurat_dataset,dataset_name,cell_type_list,cut_off_list){
+  dic ={}
+  for(cellType in cell_type_list){
+   
+    for (cut_off in cut_off_list) {
+      
+      code<-generateCellType_rate(seurat_dataset, dataset_name,cellType, cut_off)
+      print(head(code))
+      dic[[cellType]]<-as.data.frame(code) 
+    }
+  }
+  return(dic)
+}
+
+
+## Check cell type-specific gene expression probability (ExpProb)
+# output the expression probability for a gene in a specific cell type
+checkGene <- function(id,sym, barcode_dic, marker, data_name){
+  df_cell_type_gene<-data.frame(matrix(vector(), 0, 6,
+                dimnames=list(c(), c("id", "sym", "barcode","marker", "cellType", "data"))),
+                stringsAsFactors=F)
+  for(i in 1:length(barcode_dic)){
+    barcode<-barcode_dic[[i]][id,]
+    df = data.frame(id=id,sym=sym, barcode=barcode, marker=marker,cellType=names(barcode_dic)[i], data=data_name)
+    df_cell_type_gene <- rbind(df_cell_type_gene, df)
+  }
+  return(df_cell_type_gene)
+}
+
+# output the rate and three probability for a gene in a specific cell type
+checkGene_rate <- function(id,sym, barcode_dic, marker, data_name){
+  df_cell_type_gene<-data.frame(matrix(vector(), 0, 9,
+                dimnames=list(c(), c("id", "sym", "marker", "cellType", "data", "rate","exp","ln1","ln2"))),
+                stringsAsFactors=F)
+  for(i in 1:length(barcode_dic)){
+    barcode<-barcode_dic[[i]][id,]
+    colnames(barcode)<-c("rate","exp","ln1","ln2")
+    print(barcode)
+    df = data.frame(id=id,sym=sym, marker=marker,cellType=names(barcode_dic)[i], data=data_name)
+    df_rate<-cbind(df,barcode)
+    df_cell_type_gene <- rbind(df_cell_type_gene, df_rate)
+  }
+  return(df_cell_type_gene)
+}
+
+```
+
+## 7. Validate the expression probabilities 
+
+### 7.1 calculate rate and three probability for marker genes
+
+```{r, message=FALSE}
+## run all cell-type in HLCA
+seurat_dataset<-hlca
+dataset_name <-"hlca"
+cell_type_list <- unlist(unique(hlca$ann_finest_level))
+cut_off_list <- c(0.75)
+
+#barcode_dic_detail<-runBatch_rate(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
+#saveRDS(barcode_dic_detail, file = "hlca_barcode_detail.rds")
+
+barcode_dic_detail <- readRDS("hlca_barcode_detail.rds")
+
+# calculate rate and probability for NS-forest marker
+data_name<-rep("hlca", nrow(prior_marker_clean))
+df_hlca_gene_rate<-checkGene_rate(prior_marker_clean$ENSEMBLID,prior_marker_clean$NSForest_markers, barcode_dic=barcode_dic_detail, prior_marker_clean$clusterName, data_name)
+
+# combine  prior and post probability for NS-forest marker
+df_hlca_gene_rate<-df_hlca_gene_rate  %>% mutate(ENSEMBLID=id, 
+                                                 clusterName=marker)
+df_hlca_post_rate<-merge(df_hlca_gene_rate,prior_marker_clean,  by=c("ENSEMBLID","clusterName"),all.x = TRUE) %>% 
+                   mutate(target=ifelse(clusterName == cellType, TRUE, FALSE)) 
+
+marker_hlca_prior_post_rate <-df_hlca_post_rate%>%  select(c("NSForest_markers","ENSEMBLID","clusterName","clusterSize","f_score","marker_count","data","cellType","V1","V2","prior_prob_off","prior_prob_on", "rate","exp","ln1","ln2","target"))
+colnames(marker_hlca_prior_post_rate)<-c("NSForest_markers","ENSEMBLID","TargetCellType","clusterSize","f_score", "marker_count","data","dataCellSet","pi_null","pi_off","prior_prob_off","prior_prob_on", "rate","exp","ln1","ln2","targeted")
+write.table(marker_hlca_prior_post_rate, 'marker_hlca_prior_post_detail.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+
+
+```
+
+
+### 7.2 calculate update expProb for marker genes
+
+```{r, message=FALSE}
+
+#barcode_dic <- readRDS("hlca_barcode_update.rds")
+```
+
+Confirm from the author, expProb= ln2
+
+
+### 7.3. Check the "on" state probability of NS-forest markers and calculate the confusion matrix. 
+
+The following confusion matrix are based on assumption that marker genes expressed and only expressed in their targeted cell type. Since many markers expressed in more than their targeted cell type. FP counts were not correct. Therefore, recall is trustworthy, the precision is not correct.
+
+#### 7.3.1 Probabilty cut off 0.75
+
+```{r, message=FALSE,warning=FALSE}
+on_detail_post <- read.table("marker_hlca_prior_post_detail.tsv", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+
+for cutoff in c(0.75, 0.90,0.95)
+on_hlca_post<-on_detail_post %>% mutate(expected_value= ifelse(targeted=="TRUE", 1,0 ),
+                                            predicted_value= ifelse(ln2 >0.75, 1,0 ))
+
+common_levels <- union(levels(factor(on_hlca_post$predicted_value)), 
+                       levels(factor(on_hlca_post$expected_value)))
+
+on_hlca_post$predicted_value <- factor(on_hlca_post$predicted_value, levels = common_levels)
+on_hlca_post$expected_value <- factor(on_hlca_post$expected_value, levels = common_levels)
+
+#Creating confusion matrix
+on_matrix <- confusionMatrix(data=on_hlca_post$predicted_value, reference = on_hlca_post$expected_value,positive = "1")
+
+on_matrix
+
+```
+
+#### 7.3.2 Probabilty cut off 0.90
+
+```{r, message=FALSE,warning=FALSE}
+on_hlca_post<-on_detail_post %>% mutate(expected_value= ifelse(targeted=="TRUE", 1,0 ),
+                                            predicted_value= ifelse(ln2 >0.9, 1,0 ))
+
+on_hlca_post$predicted_value <- factor(on_hlca_post$predicted_value, levels = common_levels)
+on_hlca_post$expected_value <- factor(on_hlca_post$expected_value, levels = common_levels)
+
+#Creating confusion matrix
+on_matrix <- confusionMatrix(data=on_hlca_post$predicted_value, reference = on_hlca_post$expected_value,positive = "1")
+on_matrix
+
+```
+
+#### 7.3.3 Probabilty cut off 0.95
+
+```{r, message=FALSE,warning=FALSE}
+on_hlca_post<-on_detail_post %>% mutate(expected_value= ifelse(targeted=="TRUE", 1,0 ),
+                                            predicted_value= ifelse(ln2 >0.95, 1,0 ))
+
+on_hlca_post_clean$predicted_value <- factor(on_hlca_post_clean$predicted_value, levels = common_levels)
+on_hlca_post_clean$expected_value <- factor(on_hlca_post_clean$expected_value, levels = common_levels)
+
+#Creating confusion matrix
+on_matrix <- confusionMatrix(data=on_hlca_post_clean$predicted_value, reference = on_hlca_post_clean$expected_value,positive = "1")
+on_matrix
+
+```
+
+
+
+
+### 7.3 Estimate expected positive count based on observation of NS-forest markers
+
+The above confusion matrices are based on assumption that marker genes expressed and only expressed in their targeted cell type. However, the marker gene combinations given by NS-Forest often have more than one marker gene, which implies that marker genes are expressed in more than one cell type. Therefore, we expect that multiple cell types express marker genes. I estimated the expected positive count based on observation of NS-forest markers.
+
+If x is the number of cell types in which a marker gene is expressed on average, then two-marker gene expressed in one of 61 cell types follows the probability formula:(x/61) * (x/61)
+
+In the lung HLCA dataset, two-marker gene combinations are needed to classify each of 61 cell types, therfore (x/61) * (x/61) = 1, and x = sqrt(61)=7.81.This means, on average, a marker gene is expressed in 7.81 cell types.
+
+Given 133 marker genes, the expected positive_count_expected = 7.81 * 133 =1038.73
+
+### 7.4 Recall and adjust precision for three cut off
+
+#### 0.75 cut-off:
+
+recall:0.75
+
+From the confusion matrix, the predicted positive_count_predicted = 1215 + 100=1315
+
+adjusted Positive Predictive Value (Precision) = 1038.73/(1215 + 100)*0.75 =0.59
+
+#### 0.90 cut-off:
+
+recall:0.71
+
+From the confusion matrix, the predicted positive_count_predicted = 1000 + 95=1095
+
+adjusted Positive Predictive Value (Precision) = 1038.73/(1000 + 95)*0.71 =0.67
+
+
+#### 0.95 cut-off:
+
+recall:0.66
+
+From the confusion matrix, the predicted positive_count_predicted = 812+88=1315
+
+adjusted Positive Predictive Value (Precision) = 1038.73/(812+88)*0.66 =0.76
+
+
+
+
+### 7.3. Merge the tables from steps 1 and 2. Manually check 10 genes that have low expression probability in the "on" state.
+
+```{}
+# modify column name prepare for merge
+colnames(on_hlca_post_clean)
+on_off_post_narrow<-on_off_post_clean %>% mutate(ENSEMBLID=id, 
+                                                 TargetCellType=marker,
+                                                 dataCellSet=cellType,
+                                                 on_off_expProb=barcode) %>%
+                                          select(c("ENSEMBLID","TargetCellType","dataCellSet","on_off_expProb"))
+on_hlca_post_narrow<-on_hlca_post_clean  %>%  select(c("ENSEMBLID","TargetCellType","dataCellSet","expProb"))                
+
+
+
+# merge two dataframe
+on_hlca_post_clean$ENSEMBLID_TargetCellType_dataCellSet= paste(on_hlca_post_clean$ENSEMBLID,on_hlca_post_clean$TargetCellType,on_hlca_post_clean$dataCellSet)
+prior_post_on_off<-merge(on_hlca_post_clean, on_off_post_narrow, by=c("ENSEMBLID","TargetCellType","dataCellSet"), x.all=TRUE)
+
+# remove duplication
+prior_post_on_off <- prior_post_on_off[!duplicated(prior_post_on_off), ]
+
+
+write.table(prior_post_on_off, 'hlca_prior_post_on_off.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+
+
+# manually check 10 genes with low ExpProb
+```
+
+
+### 7.4 Artificially set π-null and π-off to 0.33 if the "on and off" state probability remains lower than 75% for NS-Forest markers. Check if the pre-trained data have wrong prior probability.
+
+All NS-Forest markers have "on and off" state probability equal to 1. This step is not necessary.
+
+## 8 Conclusion
+
+The expProb model defines the expression of ~25% of NS-forest marker genes in the "off" state, likely because their expression levels are low. However, using a combined "on and off" state to identify expressed genes will result in a high false positive count and low precision.
+
+Plans for next steps:
+
+
+1.Make distribution plots for the markers with wrong expProb.
+2.Check all prior and post parameter measure for the markers with wrong expProb, especially lamda.
+3.Understand the training code and see if there is a room to modification.
+4.Re-visit supplemental methods.
+5.Set the target recall and precision. 
