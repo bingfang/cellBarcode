@@ -27,25 +27,27 @@ It is a more stringent test to validate expProb using NS-Forest genes than using
 # 2. Data analysis plan
 ## 2.1 The purposes of this Rmarkdown
 
-The question is: why does a subset of NS-Forest genes or differentially expressed genes have low expression probabilities in their target cell type? The hypothesis is that the parameters were trained on data collected before 2019. After re-training, the performance could be improved.
+The question is: why does a subset of NS-Forest genes or differentially expressed genes have low expression probabilities in their target cell type? The hypothesis is that the parameters were trained on data collected before 2021. After re-training, the performance could be improved.
 
 
 ## 2.2 The rationales behind each analysis step
 
-### 2.2.1 Calculate expression probability (expProb) using the updated parameter 'params_update_hlca.rda' from re-training
+### 2.2.1 Analyze all prior and post measurements for the NS-forest markers
 
-The old parameters (params_EM_81020.rda) were trained on data collected before 2019. After re-training, the performance could be improved.
+Analyze all prior and post measurements for the NS-forest markers with low expression probability (expProb, ln2) in the "on" state. Identify explanations for false negatives and explore opportunities for model improvement.
 
-### 2.2.2 Calculate recall and adjust precision when using NS-forest gene as true positive for validation
+### 2.2.2 Calculate expression probability (expProb) using the updated parameter 'params_update_hlca.rda' from re-training
+
+The old parameters (params_EM_81020.rda) were trained on data collected before 2021. After re-training, the performance could be improved.
+
+### 2.2.3 Calculate recall and adjust precision when using NS-forest gene as true positive for validation
 
 To investigate whether re-training improves recall without worsening precision.
 
-### 2.2.3 Analyze all prior and post measurements for the NS-forest markers 
 
-Analyze all prior and post measurements for the NS-forest markers with low expression probability (expProb, ln2) in the "on" state. Identify explanations for false negatives and explore opportunities for model improvement.
  
 
-## 3. Set environment
+# 3. Set environment
 
 
 ```{r, echo=TRUE,warning=FALSE,message=FALSE, results='hide'}
@@ -69,12 +71,12 @@ library(ggplot2)
 # package for confusion matrix
 install.packages('caret')
 library(caret)
-
+library(patchwork)
 
 # Get gene-specific distributions
 # Publication:https://academic.oup.com/biostatistics/article/23/4/1150/6622011
 # https://github.com/igrabski/scRNAseq-cell-type
-load('params_update_hlca.rda') 
+load('../params_update_hlca.rda') 
 pi.all.g <- params[[1]]         # π-null,π-off, probability of null and off state.    
 g.on.all.g <- params[[2]]       # μ0j shift from μ0 
 g.off.all.g <- params[[3]]      # μ1j shift from μ1
@@ -85,13 +87,13 @@ mu.g<-c(-12.73153,-8.301349)    # global means for gene rates on a log scale, (�
 ```
 
 
-## 4. Data 
+# 4. Data 
 
 ### load HLCA core data from cellXgene
 
 ```{r, echo=TRUE,warning=FALSE,message=FALSE} 
 ## Read .rds file
-hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
+#hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b351804c-293e-4aeb-9c4c-043db67f4540_hlca_core.rds")
 
 ## Preview the dataset
 #summary(hlca@assays$RNA@meta.features$feature_type)
@@ -106,13 +108,13 @@ hlca = readRDS("/gpfs/gsfs10/users/xubr/cellXgene/scRNAseq-cell-type/data/b35180
 
 ```{r,echo=TRUE,warning=FALSE,message=FALSE} 
 # The full table of gene symbol and Ensemble ID
-gencode<-read.csv("./data/gencode.v47.annotation.csv")
+gencode<-read.csv("../data/gencode.v47.annotation.csv")
 gene_Ensemble <-gencode %>% select(c(`gene_name`, "ENSEMBLID"))
 
 # load NS-forest marker gene and binary marker gene
 #list.files("./data/")
-binary_gene<-read.csv("./data/hlcacore_ann_finest_label_all_supplementary.csv", sep=",")
-NSmarker_gene<-read.csv("./data/hlcacore_ann_finest_level.markers.csv", sep = ',')
+binary_gene<-read.csv("../data/hlcacore_ann_finest_label_all_supplementary.csv", sep=",")
+NSmarker_gene<-read.csv("../data/hlcacore_ann_finest_level.markers.csv", sep = ',')
 
 # change format of NSmarker_gene
 #NSmarker_gene$NSForest_markers[1]
@@ -169,7 +171,9 @@ Notes:
 HLCA and cellRef are combined datasets. Will integration methods affect the proportion/rate (𝜆) of individual gene expression counts in total gene expression counts in a cell type?
 
 
-## 5. Functions for calculating rate,three state probabilities
+# 5. Methods
+
+## 5.1 Functions for calculating rate,three state probabilities
 
 Functions from the 2022 Biostatistics paper
 
@@ -235,9 +239,9 @@ getBarcode2 <- function(d.list) {
 ```
 
 
-## 6. Functions for calculating cell type-specific expression probability for lung datasets 
+## 5.2. Functions for calculating cell type-specific expression probability for lung datasets 
 
-Three functions to generate expression probability for cell types
+Functions to generate expression probability for cell types
 
 ```{r, message=FALSE}
 
@@ -345,7 +349,6 @@ checkGene_rate <- function(id,sym, barcode_dic, marker, data_name){
   for(i in 1:length(barcode_dic)){
     barcode<-barcode_dic[[i]][id,]
     colnames(barcode)<-c("rate","exp","ln1","ln2")
-    print(barcode)
     df = data.frame(id=id,sym=sym, marker=marker,cellType=names(barcode_dic)[i], data=data_name)
     df_rate<-cbind(df,barcode)
     df_cell_type_gene <- rbind(df_cell_type_gene, df_rate)
@@ -355,21 +358,22 @@ checkGene_rate <- function(id,sym, barcode_dic, marker, data_name){
 
 ```
 
-## 7. Validate the expression probabilities 
+# 6. Results
 
-### 7.1 calculate rate and three probability for marker genes
+
+## 6.1 Calculate rate and three state probability for marker genes
 
 ```{r, message=FALSE}
 ## run all cell-type in HLCA
 seurat_dataset<-hlca
 dataset_name <-"hlca"
 cell_type_list <- unlist(unique(hlca$ann_finest_level))
-cut_off_list <- c(0.75)
+cut_off_list <- c(0.75)  # place holder for cut_off
 
 #barcode_dic_detail<-runBatch_rate(seurat_dataset,dataset_name,cell_type_list,cut_off_list)
 #saveRDS(barcode_dic_detail, file = "hlca_barcode_detail.rds")
 
-barcode_dic_detail <- readRDS("hlca_barcode_detail.rds")
+barcode_dic_detail <- readRDS("../hlca_barcode_detail.rds")
 
 # calculate rate and probability for NS-forest marker
 data_name<-rep("hlca", nrow(prior_marker_clean))
@@ -381,15 +385,18 @@ df_hlca_gene_rate<-df_hlca_gene_rate  %>% mutate(ENSEMBLID=id,
 df_hlca_post_rate<-merge(df_hlca_gene_rate,prior_marker_clean,  by=c("ENSEMBLID","clusterName"),all.x = TRUE) %>% 
                    mutate(target=ifelse(clusterName == cellType, TRUE, FALSE)) 
 
+marker_hlca_prior_poston_detail_post <- read.table("../processed_data/marker_hlca_prior_post_detail.tsv", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+
+
 marker_hlca_prior_post_rate <-df_hlca_post_rate%>%  select(c("NSForest_markers","ENSEMBLID","clusterName","clusterSize","f_score","marker_count","data","cellType","V1","V2","prior_prob_off","prior_prob_on", "rate","exp","ln1","ln2","target"))
 colnames(marker_hlca_prior_post_rate)<-c("NSForest_markers","ENSEMBLID","TargetCellType","clusterSize","f_score", "marker_count","data","dataCellSet","pi_null","pi_off","prior_prob_off","prior_prob_on", "rate","exp","ln1","ln2","targeted")
-write.table(marker_hlca_prior_post_rate, 'marker_hlca_prior_post_detail.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
+#write.table(marker_hlca_prior_post_rate, '../processed_data/marker_hlca_prior_post_detail.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
 
 
 ```
 
 
-### 7.2 calculate update expProb for marker genes
+## 6.2 Calculate update expProb for marker genes
 
 ```{r, message=FALSE}
 
@@ -399,137 +406,115 @@ write.table(marker_hlca_prior_post_rate, 'marker_hlca_prior_post_detail.tsv', se
 Confirm from the author, expProb= ln2
 
 
-### 7.3. Check the "on" state probability of NS-forest markers and calculate the confusion matrix. 
+## 6.3 Compare performance before and after retraining
 
-The following confusion matrix are based on assumption that marker genes expressed and only expressed in their targeted cell type. Since many markers expressed in more than their targeted cell type. FP counts were not correct. Therefore, recall is trustworthy, the precision is not correct.
 
-#### 7.3.1 Probabilty cut off 0.75
+Check the "on" state probability of NS-forest markers and calculate the confusion matrix. The following confusion matrix are based on assumption that marker genes expressed and only expressed in their targeted cell type. Since many markers expressed in more than their targeted cell type. FP counts were not correct. Therefore, recall is trustworthy, the precision is not correct.
+
+### 6.3.1 Compare recall before after re-training
+
 
 ```{r, message=FALSE,warning=FALSE}
-on_detail_post <- read.table("marker_hlca_prior_post_detail.tsv", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
 
-for cutoff in c(0.75, 0.90,0.95)
-on_hlca_post<-on_detail_post %>% mutate(expected_value= ifelse(targeted=="TRUE", 1,0 ),
-                                            predicted_value= ifelse(ln2 >0.75, 1,0 ))
+#### function for calculate recalls
+calculate_recall <- function(x, df) {
+  on_hlca_post <- df %>%
+    mutate(expected_value = ifelse(targeted == "TRUE", 1, 0),
+           predicted_value = ifelse(ln2 > x, 1, 0))
 
-common_levels <- union(levels(factor(on_hlca_post$predicted_value)), 
-                       levels(factor(on_hlca_post$expected_value)))
+  common_levels <- union(levels(factor(on_hlca_post$predicted_value)),
+                         levels(factor(on_hlca_post$expected_value)))
 
-on_hlca_post$predicted_value <- factor(on_hlca_post$predicted_value, levels = common_levels)
-on_hlca_post$expected_value <- factor(on_hlca_post$expected_value, levels = common_levels)
+  on_hlca_post$predicted_value <- factor(on_hlca_post$predicted_value, levels = common_levels)
+  on_hlca_post$expected_value <- factor(on_hlca_post$expected_value, levels = common_levels)
 
-#Creating confusion matrix
-on_matrix <- confusionMatrix(data=on_hlca_post$predicted_value, reference = on_hlca_post$expected_value,positive = "1")
-
-on_matrix
-
+  # Creating confusion matrix
+  on_matrix <- confusionMatrix(data = on_hlca_post$predicted_value, 
+                               reference = on_hlca_post$expected_value, 
+                               positive = "1")
+  
+  recall_value <- on_matrix$byClass['Sensitivity']
+  return(recall_value)
+}
 ```
 
-#### 7.3.2 Probabilty cut off 0.90
+
 
 ```{r, message=FALSE,warning=FALSE}
-on_hlca_post<-on_detail_post %>% mutate(expected_value= ifelse(targeted=="TRUE", 1,0 ),
-                                            predicted_value= ifelse(ln2 >0.9, 1,0 ))
 
-on_hlca_post$predicted_value <- factor(on_hlca_post$predicted_value, levels = common_levels)
-on_hlca_post$expected_value <- factor(on_hlca_post$expected_value, levels = common_levels)
+#### before retraining
+on_post <- read.table("../processed_data/marker_hlca_prior_post.tsv", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+on_post$ln2=on_post$expProb
+cutoff<-seq(0.5,1, by=0.01)
+# Call mapply with the function and the parameters
+recall_pre <- mapply(calculate_recall, cutoff, MoreArgs = list(df = on_post))
+data<-data_frame(cut0ff=cutoff, recall=unlist(recall_pre))
+g_pre<-ggplot(data, aes(x = cutoff, y = recall)) +
+  geom_line() +
+  labs(title = "Before re-training",  # Add title
+       x = "Cutoff Value",          # X-axis label
+       y = "Recall (Sensitivity)") + # Y-axis label
+  theme_minimal() +                  # Clean theme
+  scale_y_continuous(limits = c(0, 1))
 
-#Creating confusion matrix
-on_matrix <- confusionMatrix(data=on_hlca_post$predicted_value, reference = on_hlca_post$expected_value,positive = "1")
-on_matrix
+
+#### After retraining
+on_detail_post <- read.table("../processed_data/marker_hlca_prior_post_detail.tsv", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+cutoff<-seq(0.5,1, by=0.01)
+# Call mapply with the function and the parameters
+recall_retrain <- mapply(calculate_recall, cutoff, MoreArgs = list(df = on_detail_post))
+data<-data_frame(cut0ff=cutoff, recall=unlist(recall_retrain))
+g_retrain<-ggplot(data, aes(x = cutoff, y = recall)) +
+  geom_line()+
+  labs(title = "After re-training",  # Add title
+       x = "Cutoff Value",          # X-axis label
+       y = "Recall (Sensitivity)") + # Y-axis label
+  theme_minimal() +                  # Clean theme
+  scale_y_continuous(limits = c(0, 1))
+
+g_pre + g_retrain
+
 
 ```
-
-#### 7.3.3 Probabilty cut off 0.95
+### 6.3.2 Compare false position count before after re-training
 
 ```{r, message=FALSE,warning=FALSE}
-on_hlca_post<-on_detail_post %>% mutate(expected_value= ifelse(targeted=="TRUE", 1,0 ),
-                                            predicted_value= ifelse(ln2 >0.95, 1,0 ))
 
-on_hlca_post_clean$predicted_value <- factor(on_hlca_post_clean$predicted_value, levels = common_levels)
-on_hlca_post_clean$expected_value <- factor(on_hlca_post_clean$expected_value, levels = common_levels)
+#### function for calculate confusion matrix
+calculate_confusion <- function(x, df) {
+  on_hlca_post <- df %>%
+    mutate(expected_value = ifelse(targeted == "TRUE", 1, 0),
+           predicted_value = ifelse(ln2 > x, 1, 0))
 
-#Creating confusion matrix
-on_matrix <- confusionMatrix(data=on_hlca_post_clean$predicted_value, reference = on_hlca_post_clean$expected_value,positive = "1")
-on_matrix
+  common_levels <- union(levels(factor(on_hlca_post$predicted_value)),
+                         levels(factor(on_hlca_post$expected_value)))
+
+  on_hlca_post$predicted_value <- factor(on_hlca_post$predicted_value, levels = common_levels)
+  on_hlca_post$expected_value <- factor(on_hlca_post$expected_value, levels = common_levels)
+
+  # Creating confusion matrix
+  on_matrix <- confusionMatrix(data = on_hlca_post$predicted_value, 
+                               reference = on_hlca_post$expected_value, 
+                               positive = "1")
+  print(cut_ff)
+  print(on_matrix)
+}
+
+
+cutoff<-c(0.75,0.9,0.95)
+#### before retraining
+cm_pre <- mapply(calculate_confusion, cutoff, MoreArgs = list(df = on_post))
+#### After retraining
+cm_retrain <- mapply(calculate_confusion, cutoff, MoreArgs = list(df = on_detail_post))
 
 ```
 
 
 
 
-### 7.3 Estimate expected positive count based on observation of NS-forest markers
-
-The above confusion matrices are based on assumption that marker genes expressed and only expressed in their targeted cell type. However, the marker gene combinations given by NS-Forest often have more than one marker gene, which implies that marker genes are expressed in more than one cell type. Therefore, we expect that multiple cell types express marker genes. I estimated the expected positive count based on observation of NS-forest markers.
-
-If x is the number of cell types in which a marker gene is expressed on average, then two-marker gene expressed in one of 61 cell types follows the probability formula:(x/61) * (x/61)
-
-In the lung HLCA dataset, two-marker gene combinations are needed to classify each of 61 cell types, therfore (x/61) * (x/61) = 1, and x = sqrt(61)=7.81.This means, on average, a marker gene is expressed in 7.81 cell types.
-
-Given 133 marker genes, the expected positive_count_expected = 7.81 * 133 =1038.73
-
-### 7.4 Recall and adjust precision for three cut off
-
-#### 0.75 cut-off:
-
-recall:0.75
-
-From the confusion matrix, the predicted positive_count_predicted = 1215 + 100=1315
-
-adjusted Positive Predictive Value (Precision) = 1038.73/(1215 + 100)*0.75 =0.59
-
-#### 0.90 cut-off:
-
-recall:0.71
-
-From the confusion matrix, the predicted positive_count_predicted = 1000 + 95=1095
-
-adjusted Positive Predictive Value (Precision) = 1038.73/(1000 + 95)*0.71 =0.67
-
-
-#### 0.95 cut-off:
-
-recall:0.66
-
-From the confusion matrix, the predicted positive_count_predicted = 812+88=1315
-
-adjusted Positive Predictive Value (Precision) = 1038.73/(812+88)*0.66 =0.76
 
 
 
-
-### 7.3. Merge the tables from steps 1 and 2. Manually check 10 genes that have low expression probability in the "on" state.
-
-```{}
-# modify column name prepare for merge
-colnames(on_hlca_post_clean)
-on_off_post_narrow<-on_off_post_clean %>% mutate(ENSEMBLID=id, 
-                                                 TargetCellType=marker,
-                                                 dataCellSet=cellType,
-                                                 on_off_expProb=barcode) %>%
-                                          select(c("ENSEMBLID","TargetCellType","dataCellSet","on_off_expProb"))
-on_hlca_post_narrow<-on_hlca_post_clean  %>%  select(c("ENSEMBLID","TargetCellType","dataCellSet","expProb"))                
-
-
-
-# merge two dataframe
-on_hlca_post_clean$ENSEMBLID_TargetCellType_dataCellSet= paste(on_hlca_post_clean$ENSEMBLID,on_hlca_post_clean$TargetCellType,on_hlca_post_clean$dataCellSet)
-prior_post_on_off<-merge(on_hlca_post_clean, on_off_post_narrow, by=c("ENSEMBLID","TargetCellType","dataCellSet"), x.all=TRUE)
-
-# remove duplication
-prior_post_on_off <- prior_post_on_off[!duplicated(prior_post_on_off), ]
-
-
-write.table(prior_post_on_off, 'hlca_prior_post_on_off.tsv', sep = "\t",row.names = FALSE,col.names = TRUE) 
-
-
-# manually check 10 genes with low ExpProb
-```
-
-
-### 7.4 Artificially set π-null and π-off to 0.33 if the "on and off" state probability remains lower than 75% for NS-Forest markers. Check if the pre-trained data have wrong prior probability.
-
-All NS-Forest markers have "on and off" state probability equal to 1. This step is not necessary.
 
 ## 8 Conclusion
 
